@@ -412,14 +412,6 @@ export function SourceEditor({
           {kind === "guide" ? <CalendarRange size={22} /> : <ListVideo size={22} />}
         </span>
         <div className="min-w-0 flex-1">
-          <Switch
-            aria-label={t("Enabled")}
-            checked={!draft.disabled}
-            onChange={(e) => {
-              const disabled = !e.currentTarget.checked;
-              setDraft((d) => ({ ...d, disabled }));
-            }}
-          />
           <h2 className="truncate text-xl font-semibold tracking-tight text-fg">
             {source
               ? source.kind === "plex"
@@ -500,6 +492,18 @@ export function SourceEditor({
           ))}
         </div>
       ) : null}
+
+      <div className="flex items-center justify-between gap-4 rounded-xl border border-border bg-surface px-4 py-3">
+        <span className="text-sm font-medium">{t("Enabled")}</span>
+        <Switch
+          aria-label={t("Enabled")}
+          checked={!draft.disabled}
+          onChange={(e) => {
+            const disabled = !e.currentTarget.checked;
+            setDraft((d) => ({ ...d, disabled }));
+          }}
+        />
+      </div>
 
       {source?.lastError ? (
         <div className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger/10 p-3 text-sm">

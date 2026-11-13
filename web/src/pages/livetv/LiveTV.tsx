@@ -141,9 +141,19 @@ export default function LiveTV() {
   if (enabled === null) return null;
   if (!enabled)
     return (
-      <div className="p-6 space-y-4">
-        <h1>{t("Live TV is off")}</h1>
-        <Button onClick={() => toggleLiveTV(true)}>{t("Turn on")}</Button>
+      <div className="mx-auto max-w-3xl p-6 sm:py-12">
+        <section className="space-y-5 rounded-xl border border-border bg-surface p-6 sm:p-8">
+          <h1 className="text-2xl font-semibold">{t("Live TV is off")}</h1>
+          <p className="text-fg-muted">
+            {t("A familiar channel guide for your library and IPTV, ready to watch in your apps.")}
+          </p>
+          <ul className="list-disc space-y-2 pl-5">
+            <li>{t("Four decade channels, ready to watch, plus any IPTV you add later")}</li>
+            <li>{t("Build your own channels with AI.")}</li>
+          </ul>
+          <Button onClick={() => toggleLiveTV(true)}>{t("Turn on Live TV")}</Button>
+          <p className="text-sm text-fg-muted">{t("No background work while nobody watches.")}</p>
+        </section>
       </div>
     );
   return (
