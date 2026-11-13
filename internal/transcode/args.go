@@ -348,12 +348,12 @@ func buildCodecArgs(s runSpec) []string {
 	}
 	if s.BigProbe || (bitmap && (sub.Width <= 0 || sub.Height <= 0)) {
 		args = append(args, "-probesize", "50000000", "-analyzeduration", "10000000")
-	} else if !transcodeVideo && !s.LiveInput && s.Decision.Container == ContainerMatroska && s.Info.Video() != nil && s.Info.Video().Width > 0 && s.Info.Video().Height > 0 && s.Info.Video().Codec != "" {
-		// Container headers carry codec extradata. Keep packet analysis short
-		// for a probed copy, retaining the existing large-probe retry. Do not
-		// use nobuffer: it discards packets needed at the seek keyframe.
-		args = append(args, "-probesize", "262144", "-analyzeduration", "100000")
 	} else {
+		// Persisted probe metadata is not passed to the demuxer. Even a known
+		// video size/format does not prove ffmpeg can recover every mapped
+		// stream parameter within 100 ms (audio can precede the first picture).
+		// Keep normal analysis for copies too; otherwise a successful remux
+		// can publish unknown pixel formats and broken DTS without a retry.
 		args = append(args, "-probesize", "5000000", "-analyzeduration", "2000000")
 	}
 	if !transcodeVideo && !s.LiveInput {
