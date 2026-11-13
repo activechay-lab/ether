@@ -37,6 +37,7 @@ func (s surfaceCapabilities) Build(ctx context.Context, req frontend.CapabilityR
 	if err != nil {
 		return frontend.CapabilityResult{}, err
 	}
+	profileDeclared := declared
 	cfg := s.app.cfg.Read()
 	overrides := cfg.Clients.Overrides
 	// Frontends with their own capability builder already apply this baseline.
@@ -52,9 +53,21 @@ func (s surfaceCapabilities) Build(ctx context.Context, req frontend.CapabilityR
 		declared.DVProfiles = append([]int(nil), policy.DolbyVisionProfiles...)
 	}
 	declared.PreserveEmptyVideoCodecs = s.surface == "plex"
+	qualityCaps := declared
 	declared = resolver.ApplyClientRules(cfg.Quality, declared, req.Viewer)
 	declared.ClientIP = ip.String()
 	result := frontend.CapabilityResult{Client: declared, Quality: resolver.SelectProfile(cfg.Quality, declared, req.Viewer)}
+	if (s.surface == "jellyfin" || s.surface == "silo") && (req.Profile.MaxStreamingBitrate > 0 || len(req.Profile.DirectPlayProfiles) > 0 || len(req.Device.VideoCodecs) > 0) {
+		s.app.log.Info("playback capability selection", "product", declared.Product,
+			"maxHeight", declared.MaxHeight, "videoCodecs", declared.VideoCodecs,
+			"profileMaxHeight", profileDeclared.MaxHeight, "profileHeightDeclared", profileDeclared.ExplicitMaxHeight,
+			"profileHDR10", profileDeclared.HDR10, "profileDolbyVision", profileDeclared.DolbyVision,
+			"hdr10", declared.HDR10, "dolbyVision", declared.DolbyVision,
+			"maxBitrateKbps", declared.MaxBitrateKbps,
+			"qualityRule", result.Quality.Name, "qualityMaxHeight", result.Quality.MaxHeight,
+			"qualityHDR", result.Quality.AllowHDR,
+			"qualityLayers", resolver.ExplainQuality(resolver.QualityQuestion{Quality: cfg.Quality, Caps: qualityCaps, User: req.Viewer}).Layers)
+	}
 	if req.Viewer != nil && !s.policy.NativeClientFamilies {
 		s.app.recordFrontendFamily(ctx, s.surface, declared)
 	}
