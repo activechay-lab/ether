@@ -2642,6 +2642,12 @@ export function createFakeServer(opts: FakeOptions = {}) {
           })),
       });
     }
+    if (seg[1] === "catalogue-sources") return json({sources: [
+      {id: "tmdb-movies", name: "TMDB Movies", owner: "Built in", group: "builtin", mediaTypes: ["movie"], health: "ok", itemCount: 48260, libraries: [{id: 1, name: "Movies"}]},
+      {id: "tmdb-tv", name: "TMDB TV shows", owner: "Built in", group: "builtin", mediaTypes: ["show"], health: "ok", itemCount: 12480, libraries: [{id: 2, name: "TV Shows"}]},
+      {id: "plugin:books:book", name: "Books", owner: "Open Library", group: "plugin", mediaTypes: ["book"], health: "ok", pluginId: "books", kindKey: "book", libraries: []},
+      {id: "stremio:cinemeta:popular", name: "Popular movies", owner: "Cinemeta", group: "stremio", mediaTypes: ["movie"], health: "ok", pluginId: "cinemeta", libraries: []},
+    ]});
     if (!seg[1]) {
       if (method === "POST") {
         const id = Math.max(0, ...mockLibs.map((l) => Number(l.id))) + 1;

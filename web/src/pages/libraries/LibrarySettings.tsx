@@ -33,6 +33,7 @@ import { NewReleasesSettings, useAvailabilityDraft } from "./browser/NewReleases
 import { TierMigrationStatus } from "./browser/TierMigrationStatus";
 import { TrendingStatus } from "./browser/TrendingStatus";
 import { LibraryCacheCard } from "./LibraryCache";
+import { TitlesComeFrom } from "./TitlesComeFrom";
 import { SetupWizard } from "./SetupWizard";
 import "./browser/catalog.css";
 
@@ -560,6 +561,7 @@ export function LibrarySettings({ library, onSaved }: { library: Library; onSave
           </Button>
         </p>
       ) : null}
+      <TitlesComeFrom library={library} />
       <SettingsSection title={t("Basics")}>
         <SettingsRow
           title={t("Name")}

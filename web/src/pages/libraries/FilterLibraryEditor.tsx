@@ -1,5 +1,5 @@
 import { Button, toast } from "@braedonsaunders/appkit-ui";
-import { ArrowLeft, Check, ChevronRight, Film, Layers, Plug } from "lucide-react";
+import { ArrowLeft, Check, ChevronRight, Film, Layers } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
@@ -8,8 +8,10 @@ import { Segmented } from "../../components/fields";
 import { t, tn, tx } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
-import { librariesApi, type CollectionSource, type Library, type PluginLibrarySource } from "./api";
+import { librariesApi, type CollectionSource, type Library } from "./api";
 import { CatalogFilterBar, compileQuery, readQuery } from "./browser/CatalogFilterBar";
+import { AddCatalogueSource } from "./CatalogueSources";
+import { useStreamEvent } from "../../lib/stream";
 import { SetupWizard } from "./SetupWizard";
 
 /**
@@ -30,7 +32,9 @@ export function NewLibraryDrawer({
     "source" | "tmdb" | "collection" | { pluginId: string; libId?: number }
   >("source");
   const [busyPlugin, setBusyPlugin] = useState<string | null>(null);
-  const pluginSources = useAsync((signal) => librariesApi.listPluginSources(signal), []);
+  const registry = useAsync((signal) => librariesApi.catalogueSources(signal), []);
+  const [adding, setAdding] = useState(false);
+  useStreamEvent("plugins.changed", () => {void registry.reload();});
 
   if (step === "tmdb") {
     return (
@@ -56,11 +60,11 @@ export function NewLibraryDrawer({
     return <SetupWizard pluginId={step.pluginId} onClose={() => onPluginOpened(step.libId)} />;
   }
 
-  const pickPlugin = async (source: PluginLibrarySource) => {
+  const pickPlugin = async (source: {pluginId: string; kindKey?: string}) => {
     setBusyPlugin(source.pluginId);
     try {
       const setup = await librariesApi.ensurePluginSetup(source.pluginId);
-      const libId = setup.libraries[0]?.id;
+      const libId = setup.libraries.find(lib => lib.kindKey === source.kindKey)?.id;
       if (!setup.steps.length) {
         toast.success(t("Library ready"));
         onPluginOpened(libId);
@@ -74,115 +78,21 @@ export function NewLibraryDrawer({
     }
   };
 
-  const sources = pluginSources.data ?? [];
-
-  return (
-    <Drawer
-      open
-      onClose={onClose}
-      title={t("New library")}
-      size="lg"
-      footer={
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            {t("Cancel")}
-          </Button>
-        </div>
-      }
-    >
-      <div className="space-y-4">
-        <p className="text-sm font-medium text-fg">{t("Where do titles come from?")}</p>
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={() => setStep("tmdb")}
-            className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-hover"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-primary">
-              <Film size={18} aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium text-fg">
-                {t("Movies or TV from TMDB (a saved filter)")}
-              </span>
-              <span className="block text-sm text-fg-muted">
-                {t("Pick genres, years, ratings, or keywords from your TMDB catalog.")}
-              </span>
-            </span>
-            <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setStep("collection")}
-            className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-hover"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-primary">
-              <Layers size={18} aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium text-fg">{t("From a collection")}</span>
-              <span className="block text-sm text-fg-muted">
-                {t("Show exactly the titles of one collection, such as an MDBList or Trakt list.")}
-              </span>
-            </span>
-            <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-          </button>
-
-          {pluginSources.loading && !pluginSources.data ? <LoadingRows rows={2} /> : null}
-          {pluginSources.error ? (
-            <ErrorPanel error={pluginSources.error} onRetry={() => void pluginSources.reload()} />
-          ) : null}
-
-          {sources.map((src) => {
-            const kindLabel =
-              src.kinds
-                .map((k) => k.library?.name || k.label)
-                .filter(Boolean)
-                .join(", ") || src.pluginName;
-            return (
-              <button
-                key={src.pluginId}
-                type="button"
-                disabled={busyPlugin !== null}
-                onClick={() => void pickPlugin(src)}
-                className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-hover disabled:opacity-60"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-primary">
-                  <Plug size={18} aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-fg">{kindLabel}</span>
-                  <span className="block text-sm text-fg-muted">
-                    {src.summary
-                      ? `${t("From {plugin}", { plugin: src.pluginName })} · ${src.summary}`
-                      : t("From {plugin}", { plugin: src.pluginName })}
-                  </span>
-                </span>
-                <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-              </button>
-            );
-          })}
-        </div>
-
-        {!pluginSources.loading && sources.length === 0 ? (
-          <p className="text-sm text-fg-muted">
-            {tx("Want books, audiobooks, comics, or music? {link} that provides a library.", {
-              link: (
-                <Link
-                  to="/plugins"
-                  onClick={onClose}
-                  className="font-medium text-primary underline"
-                >
-                  {t("Install a plugin")}
-                </Link>
-              ),
-            })}
-          </p>
-        ) : null}
-      </div>
-    </Drawer>
-  );
+  return <Drawer open onClose={onClose} title={t("New library")} size="lg">
+    <div className="space-y-4">
+      <p className="font-medium">{t("Where do titles come from?")}</p>
+      {registry.loading ? <LoadingRows rows={2} /> : null}
+      {registry.error ? <ErrorPanel error={registry.error} onRetry={() => void registry.reload()} /> : null}
+      {(["builtin", "plugin", "stremio"] as const).map(group => <div key={group} className="space-y-2">
+        <h3 className="text-sm text-fg-muted">{group === "builtin" ? t("Built in") : group === "plugin" ? t("Plugins") : t("Stremio add-ons")}</h3>
+        {registry.data?.filter(source => source.group === group).map(source => <button type="button" key={source.id} disabled={busyPlugin !== null || group === "stremio"} className="flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left hover:bg-surface-hover disabled:opacity-60" onClick={() => source.pluginId ? void pickPlugin({pluginId: source.pluginId, kindKey: source.kindKey}) : setStep("tmdb")}>
+          <Film size={18} /><span className="flex-1"><span className="block font-medium">{source.name}</span><span className="block text-sm text-fg-muted">{t("From {plugin}", {plugin: source.owner})}</span></span><ChevronRight size={16}/>
+        </button>)}
+      </div>)}
+      <Button variant="ghost" onClick={() => setAdding(true)}>{t("Add catalogue source")}</Button>
+    </div>
+    {adding ? <AddCatalogueSource onClose={() => setAdding(false)} onAdded={() => void registry.reload()} /> : null}
+  </Drawer>;
 }
 
 /**
