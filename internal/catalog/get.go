@@ -741,6 +741,13 @@ const seasonLoads = 6
 // long-running show does not refetch every past season once its details go
 // stale. Fetches run concurrently.
 func (c *Catalog) loadSeasons(ctx context.Context, showID int64, seasons []core.Title) error {
+	// Apply the same active-season TTL as direct season reads. Using fresh
+	// alone here kept watchlist Grandchildren reads stale for the general TTL.
+	var show *core.Title
+	if st, err := c.loadByKey(ctx, core.ShowKey(showID)); err == nil {
+		show = &st.t
+	}
+
 	type mirrored struct{ episodes, pending int }
 	have := map[int]mirrored{}
 	rows, err := c.db.QueryContext(ctx, `SELECT season,COUNT(*),COUNT(CASE WHEN release_known=0 OR released_ts>? THEN 1 END)
@@ -778,10 +785,11 @@ func (c *Catalog) loadSeasons(ctx context.Context, showID int64, seasons []core.
 			return err
 		}
 		st := storedTitle{detail: detail != 0}
+		st.t.Season = season
 		if detailAt != 0 {
 			st.detailAt = time.Unix(detailAt, 0).UTC()
 		}
-		records[season] = record{detailed: st.detail && detailAt != 0, fresh: c.fresh(&st), episodes: child}
+		records[season] = record{detailed: st.detail && detailAt != 0, fresh: c.seasonFresh(&st, show), episodes: child}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

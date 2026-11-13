@@ -719,7 +719,9 @@ func (s *Service) checkSet(ctx context.Context, cfg Settings, userID int64, poli
 		if pending && s.o.Now().Sub(newest.Released) < freshAiring {
 			interval = min(interval, freshAiringCheck)
 		}
-		if !it.CheckedAt.IsZero() && s.o.Now().Sub(it.CheckedAt) < interval {
+		// A check before this episode aired says nothing about its release.
+		newlyAired := pending && it.CheckedAt.Before(newest.Released)
+		if !newlyAired && !it.CheckedAt.IsZero() && s.o.Now().Sub(it.CheckedAt) < interval {
 			continue
 		}
 		// Share the scheduled pass budget with owner jobs; concurrency stays one.

@@ -211,7 +211,7 @@ func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windo
 			}
 			// Pre-official-date unverified match: queued in availability_releases
 			// for verification; keep bounded retry active until verified or date passes.
-			nextAt := nextRetryAfter(anchorTS, windowEndTS, s.now().Unix())
+			nextAt := nextEpisodeRetry(anchorTS, windowEndTS, s.now().Unix(), t.Type == core.TypeEpisode && basePrio >= 3000)
 			return s.saveTitleCheckDue(ctx, t.Key, "searching", "", nextAt, basePrio)
 		}
 	}
@@ -220,7 +220,7 @@ func (s *Service) probeOneDue(ctx context.Context, t core.Title, anchorTS, windo
 	}
 	now := s.now()
 	nowTS := now.Unix()
-	nextAt := nextRetryAfter(anchorTS, windowEndTS, nowTS)
+	nextAt := nextEpisodeRetry(anchorTS, windowEndTS, nowTS, t.Type == core.TypeEpisode && basePrio >= 3000)
 	if failed > 0 {
 		backoff := now.Add(probeRetry).Unix()
 		if nextAt == 0 || backoff > nextAt {

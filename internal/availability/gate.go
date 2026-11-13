@@ -87,6 +87,20 @@ func nextRetryAfter(anchorTS, windowEndTS, nowTS int64) int64 {
 	return cand
 }
 
+// Followed episodes need retries during the evening too: the generic cadence
+// ends at 08:00 UTC, well before many networks broadcast. Keep these targeted
+// checks hourly within the existing evidence window and indexer budgets.
+func nextEpisodeRetry(anchorTS, windowEndTS, nowTS int64, followed bool) int64 {
+	next := nextRetryAfter(anchorTS, windowEndTS, nowTS)
+	if followed && nowTS >= anchorTS && nowTS < windowEndTS {
+		hourly := anchorTS + ((nowTS-anchorTS)/3600+1)*3600
+		if hourly < windowEndTS && (next == 0 || hourly < next) {
+			return hourly
+		}
+	}
+	return next
+}
+
 // computeGatePolicy hashes the profile, resolver, provider usability, and feed
 // source generations that govern whether an accepted release opens the gate.
 // Window lengths, poll budgets, and upcoming-movie flags are applied in SQL at
@@ -1002,6 +1016,13 @@ func (s *Service) seedDueChecks(ctx context.Context, cfg config.Availability) er
 				nextAt = nowTS
 			} else {
 				nextAt = nextRetryAfter(anchorTS, windowEndTS, nowTS)
+			}
+		}
+		if t.Type == core.TypeEpisode && t.IsReleased(now) && (watch[t.Key] || watch[t.ShowKey]) && state != "found" && ex.checked != 0 {
+			// Re-arm exhausted schedules as well as newly followed shows.
+			retry := nextEpisodeRetry(anchorTS, windowEndTS, nowTS, true)
+			if retry != 0 && nextAt == 0 {
+				nextAt = retry
 			}
 		}
 		if ex.anchor != anchorTS || ex.windowEnd != windowEndTS || ex.next != nextAt || ex.state != state || ex.priority != wantPrio {
