@@ -43,13 +43,13 @@ func TestDetailReserveUsesMediaDuration(t *testing.T) {
 		calls := append([]prefetchCall(nil), h.engine.prefetch...)
 		h.engine.mu.Unlock()
 		for _, c := range calls {
-			if c.Length == 40_000_000 {
+			if c.Length == 25_000_000 {
 				return
 			}
 		}
 		time.Sleep(time.Millisecond)
 	}
-	t.Fatal("detail warming did not request 40 seconds")
+	t.Fatal("detail warming did not request 25 seconds")
 }
 
 func TestSwapLatencyWindowIsBoundedAndExpiresOldSamples(t *testing.T) {

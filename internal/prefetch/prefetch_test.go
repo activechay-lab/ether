@@ -228,6 +228,11 @@ func (f *fixture) wait(t *testing.T) {
 
 func TestNextEpisodeTriggerAndDedupe(t *testing.T) {
 	f := newFixture(t, Options{}, nil)
+	// Isolate next-episode jobs from timeline-triggered resume warming.
+	cfg := f.p.config()
+	cfg.KeepInProgressWarm = false
+	f.p.SetConfig(cfg)
+
 	dur := 50 * time.Minute
 
 	f.p.OnTimeline(user, ep1, 10*time.Minute, dur, "playing") // 20%: nothing
@@ -355,6 +360,11 @@ func TestConcurrencyLimitAndNonBlocking(t *testing.T) {
 		}
 	})
 	start := time.Now()
+	// Isolate next-episode jobs from timeline-triggered resume warming.
+	cfg := f.p.config()
+	cfg.KeepInProgressWarm = false
+	f.p.SetConfig(cfg)
+
 	for i := 1; i <= 2; i++ {
 		f.p.OnTimeline(user, core.EpisodeKey(200, 1, i), 49*time.Minute, 50*time.Minute, "playing")
 	}
@@ -408,7 +418,7 @@ func TestBackgroundWarmsRecordCauses(t *testing.T) {
 	f.hints.points[[2]int64{user.ID, int64(movie)}] = &playback.ResumePoint{
 		Release: core.Release{ID: "m", Name: "Movie.Release"}, NZB: []byte("nzb-m"), Size: 1000 << 20, Duration: 100 * time.Minute,
 	}
-	f.state.byUser[user.ID] = []core.WatchStatus{{Key: movie, ViewOffset: 50 * time.Minute}}
+	f.state.byUser[user.ID] = []core.WatchStatus{{Key: movie, ViewOffset: 50 * time.Minute, LastViewedAt: time.Now()}}
 	f.auth.users = []core.User{*user}
 	if err := f.p.warmPass(context.Background()); err != nil {
 		t.Fatal(err)
