@@ -248,12 +248,6 @@ func matroskaCopyParameterSets(d core.Decision, codec string) string {
 	case "hevc":
 		return "hevc_mp4toannexb"
 	case "h264":
-		// Plex Android applies its own h264_mp4toannexb when handing
-		// Matroska samples to MediaCodec. Preserve source avcC and packet
-		// NAL layout here rather than injecting a second SPS/PPS prefix.
-		if d.AndroidMatroskaHLS {
-			return ""
-		}
 		return "h264_mp4toannexb"
 	}
 	return ""
@@ -1076,7 +1070,7 @@ func escapeFilterValue(v string) string {
 // inside segmented Matroska. Burned and non-Matroska decisions keep the
 // sidecar path. A nil return means the run stays subtitle-free (-sn).
 func matroskaTextSubtitle(s runSpec) *core.StreamInfo {
-	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles || s.Decision.AndroidMatroskaHLS {
+	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles {
 		return nil
 	}
 	sub := findStream(s.Info, s.Decision.SubtitleStream, "subtitle")
