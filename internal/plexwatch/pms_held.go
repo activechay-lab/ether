@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -289,6 +290,14 @@ func (s *Servers) runHeldPass(ctx context.Context, serverID int64) (bool, error)
 					}
 					if _, ok := held[showKey]; !ok && len(held) < pmsHeldCap {
 						held[showKey] = pmsHeldRow{ratingKey: showKey, showKey: showKey}
+					}
+					// A combined file (S05E22-23, S04E08E09) is one PMS item
+					// for several episodes: hold every episode it spans.
+					for _, ep := range spannedEpisodes(md, key.Season(), key.Episode()) {
+						extra := core.EpisodeKey(key.TMDB(), key.Season(), ep)
+						if _, ok := held[extra]; !ok && len(held) < pmsHeldCap {
+							held[extra] = pmsHeldRow{ratingKey: extra, showKey: showKey, season: key.Season(), episode: ep}
+						}
 					}
 					matchedShows[showKey] = struct{}{}
 				}
@@ -642,5 +651,50 @@ func (s *Servers) reloadHeldSnapshot(ctx context.Context) error {
 		Episodes: episodes,
 		Shows:    shows,
 	})
+	return nil
+}
+
+// multiEpisodeRe finds an SxxEyy episode tag followed by more episode numbers:
+// "S05E22-23", "S05E22-E23", "S04E08E09", "s01e01e02e03".
+var episodeNumberRe = regexp.MustCompile(`\d{1,4}`)
+
+var multiEpisodeRe = regexp.MustCompile(`(?i)s(\d{1,3})e(\d{1,4})((?:[-_ ]?e\d{1,4}|-\d{1,4})+)`)
+
+// spannedEpisodes lists the episodes after first that a PMS episode item's file
+// name declares for season (a range "E22-23" fills the gap; a list "E08E09"
+// names each). Bounded to 10 extra episodes; nothing when the file names a
+// single episode or a different season.
+func spannedEpisodes(md pmsMetadata, season, first int) []int {
+	for _, media := range md.Media {
+		for _, part := range media.Part {
+			name := part.File
+			if i := strings.LastIndexAny(name, `/\\`); i >= 0 {
+				name = name[i+1:]
+			}
+			m := multiEpisodeRe.FindStringSubmatch(name)
+			if m == nil {
+				continue
+			}
+			s, _ := strconv.Atoi(m[1])
+			start, _ := strconv.Atoi(m[2])
+			if s != season || start != first {
+				continue
+			}
+			nums := episodeNumberRe.FindAllString(m[3], -1)
+			last := start
+			var out []int
+			for _, n := range nums {
+				v, _ := strconv.Atoi(n)
+				if v <= last || v > first+10 {
+					break
+				}
+				for e := last + 1; e <= v; e++ {
+					out = append(out, e)
+				}
+				last = v
+			}
+			return out
+		}
+	}
 	return nil
 }

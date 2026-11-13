@@ -134,6 +134,13 @@ type pmsMetadata struct {
 	LastViewedAt         flexInt `json:"lastViewedAt"`
 	ViewedAt             flexInt `json:"viewedAt"`
 	AccountID            flexInt `json:"accountID"`
+	// Media carries the item's files: a multi-episode file (S05E22-23) is one
+	// PMS episode item that also holds the episodes its name spans.
+	Media []struct {
+		Part []struct {
+			File string `json:"file"`
+		} `json:"Part"`
+	} `json:"Media"`
 }
 
 func (m pmsMetadata) showKey() int64 {
