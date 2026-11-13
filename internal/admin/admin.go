@@ -378,6 +378,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) routes() *http.ServeMux {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/web-player", h.webPlayer)
+	mux.HandleFunc("POST /api/web-player", h.webPlayer)
 	api := func(pattern string, fn http.HandlerFunc) {
 		mux.HandleFunc(pattern, h.requireAuth(fn))
 	}

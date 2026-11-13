@@ -140,6 +140,9 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 	if err := inst.browseRoutes(); err != nil {
 		return nil, err
 	}
+	if err := inst.webSigninRoutes(); err != nil {
+		return nil, err
+	}
 	if err := inst.routes(); err != nil {
 		return nil, err
 	}
@@ -214,6 +217,11 @@ func (i *instance) Listeners() []frontend.ListenerSpec {
 // UDP discovery is multiplexed by the host via DiscoveryResponder.
 func (i *instance) Discovery() []frontend.Announcer { return nil }
 func (i *instance) Status(context.Context) frontend.Status {
-	return frontend.Status{TargetVersion: i.info.Version, Conformance: conformance.Status(string(i.protocol), i.info.Version)}
+	ready := false
+	if i.webClient != nil {
+		st, _ := i.webClient.State()
+		ready = st == webclient.StatusReady
+	}
+	return frontend.Status{WebPlayerReady: ready, TargetVersion: i.info.Version, Conformance: conformance.Status(string(i.protocol), i.info.Version)}
 }
 func (i *instance) Close(context.Context) error { i.cancel(); return nil }

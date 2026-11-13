@@ -67,6 +67,7 @@ import { t, tn } from "./i18n";
 import { I18nProvider, LanguagePicker } from "./i18n/react";
 import { Brand, BrandSplash, EtherMark } from "./components/brand";
 import { CommandSearch } from "./components/CommandSearch";
+import { WatchButton } from "./components/WatchButton";
 import { AskEther } from "./components/agent/AskEther";
 import { Drawer } from "./components/Drawer";
 import { ErrorPanel } from "./components/feedback";
@@ -470,6 +471,7 @@ function Shell() {
               <span className="hidden truncate sm:inline">{serverName}</span>
             </span>
             <HealthIndicator />
+            <WatchButton />
             <AskEther />
             <ThemeToggle
               collapsed

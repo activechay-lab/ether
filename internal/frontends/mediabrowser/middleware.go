@@ -20,6 +20,7 @@ type anonymousStreamKey struct{}
 // existing anonymous response before sign-in (see public_test.go).
 // Media and image routes instead verify their own unguessable scoped grants.
 var publicRoutesAllowlist = map[route.Route]bool{
+	{Method: "POST", Pattern: "/Ether/WebSignIn"}:                           true,
 	{Method: "GET", Pattern: "/Branding/Css"}:                               true,
 	{Method: "GET", Pattern: "/Branding/Css.css"}:                           true,
 	{Method: "GET", Pattern: "/System/Info/Public"}:                         true,
@@ -63,6 +64,10 @@ var anonymousStreamRoutes = map[route.Route]bool{
 }
 
 func (i *instance) routeMiddleware(rt route.Route, next http.Handler) http.Handler {
+	// Never sample hand-off request or response secrets in support recordings.
+	if rt.Pattern == "/Ether/WebSignIn" {
+		return next
+	}
 	if i.pages != nil && i.host.PageFreshness != nil {
 		original := next
 		cached := i.pages.wrap(next, i.host.PageFreshness)

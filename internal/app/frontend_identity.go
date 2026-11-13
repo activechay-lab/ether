@@ -285,3 +285,15 @@ func (s surfaceIdentity) AuthenticateAppPassword(ctx context.Context, username, 
 	}
 	return nil, core.ErrUnauthorized
 }
+
+// RedeemWebCode is available only on the Jellyfin surface and shares its normal
+// sign-in rate limits and device grant lifecycle.
+func (s surfaceIdentity) RedeemWebCode(ctx context.Context, code, browser, existing string) (string, int64, error) {
+	if s.surface != "jellyfin" || s.grants == nil || s.login == nil {
+		return "", 0, core.ErrUnauthorized
+	}
+	if err := s.allow(ctx, s.login, "ether-web"); err != nil {
+		return "", 0, err
+	}
+	return s.grants.RedeemWebCode(ctx, code, browser, existing)
+}

@@ -57,6 +57,10 @@ func publicRoutes(r *route.Router, getInfo func() PublicInfo, picker http.Handle
 		}},
 		{"POST", "/System/Ping", func(w http.ResponseWriter, _ *http.Request) { jsonReply(w, getInfo().ProductName) }},
 		{"GET", "/web/{path...}", func(w http.ResponseWriter, r *http.Request) {
+			if r.PathValue("path") == "ether-signin" && getInfo().ProductName != "Emby Server" {
+				webSigninPage(w, r)
+				return
+			}
 			serveWeb(w, r, getInfo().ProductName == "Emby Server", webClient)
 		}},
 		{"GET", "/Users/Public", picker},
