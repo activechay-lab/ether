@@ -220,6 +220,7 @@ func (o *Options) defaults() {
 
 // Manager implements core.Playback.
 type Manager struct {
+	openFailures      map[core.RatingKey]map[string]bool
 	subtitleScheduled map[string]bool
 	subtitleRunning   bool
 	channelWarmActive int

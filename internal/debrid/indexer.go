@@ -623,3 +623,25 @@ func hashOnly(hashes []string) []core.Release {
 	}
 	return out
 }
+
+// RecentSourceThroughput uses only account measurements already collected by
+// active streams. An unmeasured eligible account leaves selection unrestricted.
+func (x *Indexer) RecentSourceThroughput(r core.Release) float64 {
+	if x.svc == nil || r.Protocol != core.ProtocolTorrent {
+		return 0
+	}
+	var best float64
+	for _, e := range x.svc.active() {
+		if len(r.DebridCached) > 0 && !slices.Contains(r.DebridCached, e.cfg.Kind) {
+			continue
+		}
+		e.mu.Lock()
+		l := e.stats.Latency
+		e.mu.Unlock()
+		if l.ThroughputBps <= 0 || x.svc.now().Sub(l.ThroughputAt) > 2*time.Minute {
+			return 0
+		}
+		best = max(best, l.ThroughputBps)
+	}
+	return best
+}
