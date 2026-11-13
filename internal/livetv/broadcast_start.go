@@ -227,6 +227,7 @@ func (s *Service) openGraphicsDecoder(ctx context.Context, runner transcode.Cont
 			channelID: request.ChannelID,
 			moment:    request.Moment,
 			mode:      mode,
+			coldPlate: mode == "static-plate",
 			stream:    stream,
 			format:    format,
 		}, nil, nil
