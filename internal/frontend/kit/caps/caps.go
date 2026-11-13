@@ -182,6 +182,7 @@ func (b Builder) Build(ctx context.Context, device DeviceInfo, profile DevicePro
 		c.SubtitleCodecs = []string{}
 	}
 	c.DVProfiles = append([]int(nil), device.DVProfiles...)
+	deriveVideo(&c, profile)
 	if c.Product == "" {
 		c.Product = userAgent
 	}

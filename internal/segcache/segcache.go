@@ -1065,6 +1065,10 @@ func (c *Cache) loadReleaseDir(dir, rel string, all []*entry) []*entry {
 			c.removeStale(p)
 			continue
 		}
+		if _, err := peekSegment(p, info.Size()-headerSize, 0); err != nil {
+			c.removeStale(p)
+			continue
+		}
 		mt := info.ModTime().UnixNano()
 		e := &entry{rel: r, seg: seg, size: info.Size() - headerSize, lastUsed: mt, touched: mt}
 		r.segs[seg] = e

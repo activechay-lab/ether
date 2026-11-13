@@ -58,6 +58,24 @@ func (a *App) configureCache(c config.Cache) {
 func (a *App) cacheHandler() http.Handler {
 	a.cache.SetBlockCheck(a.resolver.LocalReleaseBlocked)
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /clear-all", func(w http.ResponseWriter, r *http.Request) {
+		if len(a.playback.Sessions()) > 0 || len(a.playback.RemoteSessions(r.Context())) > 0 {
+			cacheConflict(w)
+			return
+		}
+		var freed int64
+		complete := true
+		for _, release := range a.cache.Releases() {
+			before := a.cache.ReleaseBytes(release.ReleaseID)
+			if err := a.cache.ClearUnpinned(release.ReleaseID); err != nil {
+				complete = false
+				continue
+			}
+			freed += max(int64(0), before-a.cache.ReleaseBytes(release.ReleaseID))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"freedBytes": freed, "complete": complete})
+	})
 	mux.HandleFunc("POST /clear", func(w http.ResponseWriter, r *http.Request) { a.clearReleaseCache(w, r, false) })
 	mux.HandleFunc("POST /clear-block", func(w http.ResponseWriter, r *http.Request) { a.clearReleaseCache(w, r, true) })
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
