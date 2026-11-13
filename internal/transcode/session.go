@@ -25,6 +25,7 @@ import (
 // track per representation (video, audio); ffmpeg's dash muxer writes short
 // chunks that the session regroups into numbered segments by timestamp.
 type Session struct {
+	matroskaTitleClock      bool // immutable client presentation clock, retained across source swaps
 	healTimestamps          bool // positively sampled MPEG-TS clock discontinuity
 	qsvCodec                string
 	qsvQuality              bool

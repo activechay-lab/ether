@@ -934,6 +934,7 @@ func (m *Manager) startHLS(ctx context.Context, req core.HLSRequest, life *encod
 		softSubtitleStream = &index
 	}
 	s := &Session{
+		matroskaTitleClock:      d.MatroskaTitleClock,
 		healTimestamps:          healTimestamps,
 		encoder:                 life,
 		id:                      id,
