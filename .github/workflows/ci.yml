@@ -168,6 +168,8 @@ jobs:
           - os: ubuntu-latest
             shard: protocols
           - os: ubuntu-latest
+            shard: livetv
+          - os: ubuntu-latest
             shard: rest
           - os: windows-latest
             shard: app-transcode-playback
@@ -392,9 +394,13 @@ jobs:
             protocols)
               go test -race -timeout 20m ./internal/frontends/... ./internal/resolver/... ./internal/debrid/...
               ;;
+            livetv)
+              # Its broadcast tests run real ffmpeg; under -race the package alone takes ~17 minutes.
+              go test -race -timeout 20m ./internal/livetv/...
+              ;;
             rest)
               # shellcheck disable=SC2016 # $ is a regex anchor
-              pkgs=$(go list ./... | grep -vE '/internal/(app|transcode|playback|usenet|plex|frontends|catalog|resolver|debrid)($|/)')
+              pkgs=$(go list ./... | grep -vE '/internal/(app|transcode|playback|usenet|plex|frontends|catalog|resolver|debrid|livetv)($|/)')
               # shellcheck disable=SC2086 # one argument per package
               go test -race -timeout 20m $pkgs
               ;;
