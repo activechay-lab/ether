@@ -255,24 +255,49 @@ func (m *Manager) prepareSpeedAlternate(g *generation) {
 		alts = slices.DeleteFunc(alts, func(r core.Release) bool {
 			return r.Size > 0 && g.infoSnapshot().Duration > 0 && float64(r.Size)/g.infoSnapshot().Duration.Seconds() >= currentBps
 		})
-		prepared, failed, _ := m.raceAlternates(ctx, s, tried, alts,
-			func(size int64) core.MediaInfo { return core.MediaInfo{Size: size, Estimated: true} }, 3,
-			func(next *generation) error {
-				if hls, ok := m.deps.HLSLookup(s.id); ok {
-					if p, ok := hls.(interface{ SwapWouldCopyVideo(core.MediaInfo) bool }); ok && !p.SwapWouldCopyVideo(next.infoSnapshot()) {
-						return core.ErrNotAvailable
-					}
-				}
-				bps := replacementBps(next, g.infoSnapshot().Duration)
-				if bps <= 0 || bps >= currentBps {
+
+		accept := func(next *generation) error {
+			if hls, ok := m.deps.HLSLookup(s.id); ok {
+				if p, ok := hls.(interface{ SwapWouldCopyVideo(core.MediaInfo) bool }); ok && !p.SwapWouldCopyVideo(next.infoSnapshot()) {
 					return core.ErrNotAvailable
 				}
-				if err := m.warmAlternateWindow(ctx, g, next); err != nil {
-					m.rememberOpenFailure(s, next.res.Release, err)
-					return err
+			}
+			bps := replacementBps(next, g.infoSnapshot().Duration)
+			if bps <= 0 || bps >= currentBps {
+				return core.ErrNotAvailable
+			}
+			if err := m.warmAlternateWindow(ctx, g, next); err != nil {
+				m.rememberOpenFailure(s, next.res.Release, err)
+				return err
+			}
+			return nil
+		}
+		fallback := func(size int64) core.MediaInfo { return core.MediaInfo{Size: size, Estimated: true} }
+		prepared, failed, _ := m.raceAlternates(ctx, s, tried, alts, fallback, failoverRaceWidth, accept, nil)
+		// Some providers resolve their payload on demand rather than exposing
+		// a fetchable alternate. Keep their bounded, sequential preparation.
+		if prepared == nil {
+			tried = append(tried, failed...)
+			for attempt := 0; attempt < min(m.opts.MaxAttempts, failoverRaceWidth) && ctx.Err() == nil; attempt++ {
+				res, err := m.nextResolution(ctx, s, tried, alts)
+				if err != nil {
+					break
 				}
-				return nil
-			}, nil)
+				tried = append(tried, res.Release.ID)
+				next, err := m.openGeneration(ctx, s, res, fallback)
+				if err != nil {
+					failed = append(failed, res.Release.ID)
+					continue
+				}
+				if m.preflightSwap(ctx, s, next) != nil || accept(next) != nil {
+					m.dropGeneration(next)
+					failed = append(failed, res.Release.ID)
+					continue
+				}
+				prepared = next
+				break
+			}
+		}
 		s.mu.Lock()
 		s.tried = append(s.tried, failed...)
 		s.mu.Unlock()
