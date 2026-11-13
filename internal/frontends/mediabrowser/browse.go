@@ -56,8 +56,8 @@ func (i *instance) userDataDTO(id string, st frontend.WatchStatus) map[string]an
 	return data
 }
 func (i *instance) itemDTO(t frontend.Title, state frontend.WatchStatus) map[string]any {
-	kind := map[frontend.MediaType]string{"movie": "Movie", "show": "Series", "season": "Season", "episode": "Episode"}[t.Type]
-	m := map[string]any{"Id": ids.RatingKeyGUID(t.Key), "Name": t.Title, "Type": kind, "LocationType": "FileSystem", "IsFolder": t.Type == "show" || t.Type == "season", "Overview": t.Summary, "ProductionYear": t.Year, "RunTimeTicks": t.Runtime.Nanoseconds() / 100, "UserData": i.userDataDTO(ids.RatingKeyGUID(t.Key), state)}
+	kind := map[frontend.MediaType]string{"movie": "Movie", "show": "Series", "season": "Season", "episode": "Episode", "boxset": "BoxSet"}[t.Type]
+	m := map[string]any{"Id": ids.RatingKeyGUID(t.Key), "Name": t.Title, "Type": kind, "LocationType": "FileSystem", "IsFolder": t.Type == "show" || t.Type == "season" || t.Type == "boxset", "Overview": t.Summary, "ProductionYear": t.Year, "RunTimeTicks": t.Runtime.Nanoseconds() / 100, "UserData": i.userDataDTO(ids.RatingKeyGUID(t.Key), state)}
 	if added := t.DateAdded(time.Now()); !added.IsZero() {
 		m["DateCreated"] = wireTime(added)
 	}
@@ -215,6 +215,14 @@ func (i *instance) writeCollectionFolder(w http.ResponseWriter, r *http.Request,
 		i.writeUserRoot(w, r, v)
 		return
 	}
+	if viewNum == collectionsViewNumber {
+		if folder, ok := i.collectionsFolder(r, v); ok {
+			i.replyItems(w, r, folder)
+		} else {
+			http.NotFound(w, r)
+		}
+		return
+	}
 	if ids.PersonalView(viewNum) {
 		i.writePersonalFolder(w, r, v, viewNum)
 		return
@@ -284,6 +292,9 @@ func (i *instance) browseRoutes() error {
 			if item, ok := i.collectionFolder(r, v, frontend.View{ID: ids.Decimal(liveTVViewNumber), Name: "Live TV", Type: "livetv"}); ok {
 				items = append(items, item)
 			}
+		}
+		if folder, ok := i.collectionsFolder(r, v); ok {
+			items = append(items, folder)
 		}
 		items = i.prependPersonalViews(r, v, items)
 		i.replyItems(w, r, i.queryResult(items, len(items), 0))
@@ -668,6 +679,16 @@ func itemQuery(r *http.Request) frontend.ItemQuery {
 			}
 		}
 	}
+	for _, value := range route.Query(r.URL.Query(), "ExcludeItemTypes") {
+		for _, typ := range splitCSV(value) {
+			name := strings.ToLower(typ)
+			if name == "series" {
+				name = "show"
+			}
+			q.ExcludedTypes = append(q.ExcludedTypes, frontend.MediaType(name))
+		}
+	}
+
 	if values := route.Query(r.URL.Query(), "Genres"); len(values) == 1 && values[0] != "" {
 		q.Filter.Genres = splitCSV(values[0])
 	}
@@ -872,7 +893,7 @@ func (i *instance) search(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := itemQuery(r)
-	result, err := i.host.Experience.Search(r.Context(), v, device(r), terms[0], q)
+	result, err := i.searchPage(r, v, terms[0], q)
 	if err != nil {
 		http.Error(w, "Unavailable", 503)
 		return
@@ -883,8 +904,8 @@ func (i *instance) search(w http.ResponseWriter, r *http.Request) {
 	images := i.gridListImages(r, result.Page.Items)
 	for _, t := range result.Page.Items {
 		id := ids.RatingKeyGUID(t.Key)
-		kind := map[frontend.MediaType]string{"movie": "Movie", "show": "Series", "season": "Season", "episode": "Episode"}[t.Type]
-		hint := map[string]any{"Id": id, "ItemId": id, "Name": t.Title, "Type": kind, "ProductionYear": t.Year, "IsFolder": t.Type == "show" || t.Type == "season"}
+		kind := map[frontend.MediaType]string{"movie": "Movie", "show": "Series", "season": "Season", "episode": "Episode", "boxset": "BoxSet"}[t.Type]
+		hint := map[string]any{"Id": id, "ItemId": id, "Name": t.Title, "Type": kind, "ProductionYear": t.Year, "IsFolder": t.Type == "show" || t.Type == "season" || t.Type == "boxset"}
 		if tags, ok := images[t.Key]["ImageTags"].(map[string]string); ok && tags["Primary"] != "" {
 			hint["PrimaryImageTag"] = tags["Primary"]
 		}
@@ -945,6 +966,12 @@ func (i *instance) items(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	q := itemQuery(r)
+	if len(parent) == 1 {
+		if n, e := ids.ParseGUID(ids.View, parent[0]); e == nil && n == collectionsViewNumber {
+			i.writeBoxSets(w, r, v, q)
+			return
+		}
+	}
 	switch requestedSpecialItems(r) {
 	case specialBoxSets:
 		i.writeBoxSets(w, r, v, q)
@@ -967,7 +994,7 @@ func (i *instance) items(w http.ResponseWriter, r *http.Request) {
 		// from the title index with a bounded window, not a library walk
 		// filtered by name.
 		q.Filter.Query = ""
-		result, e := i.host.Experience.Search(r.Context(), v, device(r), search, q)
+		result, e := i.searchPage(r, v, search, q)
 		if e != nil {
 			http.Error(w, "Unavailable", 503)
 			return

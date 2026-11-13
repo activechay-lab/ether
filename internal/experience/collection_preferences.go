@@ -2,6 +2,7 @@ package experience
 
 import (
 	"context"
+	"strings"
 
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/frontend"
@@ -50,12 +51,25 @@ func (s *Service) Collections(ctx context.Context, viewer *core.Viewer, _ core.D
 	if !ok {
 		return frontend.CollectionPage{}, core.ErrNotAvailable
 	}
+	published := map[core.MediaType]bool{}
+	if s.d.PluginLibraries != nil {
+		views, e := s.storedViews(ctx, v)
+		if e != nil {
+			return frontend.CollectionPage{}, e
+		}
+		for _, view := range views {
+			if view.KindKey == "" {
+				published[view.Type] = true
+			}
+		}
+	}
+
 	seenTypes := map[core.MediaType]bool{}
 	seenKeys := map[core.RatingKey]bool{}
 	var visible []core.Collection
 	for _, lib := range s.libraries() {
 		typ := lib.Type
-		if (typ != core.TypeMovie && typ != core.TypeShow) || !SectionAllowed(v, lib.ID) || (len(requested) > 0 && !requested[typ]) || seenTypes[typ] {
+		if (s.d.PluginLibraries != nil && !published[typ]) || (typ != core.TypeMovie && typ != core.TypeShow) || !SectionAllowed(v, lib.ID) || (len(requested) > 0 && !requested[typ]) || seenTypes[typ] {
 			continue
 		}
 		seenTypes[typ] = true
@@ -64,7 +78,7 @@ func (s *Service) Collections(ctx context.Context, viewer *core.Viewer, _ core.D
 			return frontend.CollectionPage{}, e
 		}
 		for _, c := range collections {
-			if c.Type != typ || seenKeys[c.Key] || !s.d.Visibility.CollectionAllowed(v, &c) || (c.OwnerUserID != 0 && c.OwnerUserID != v.ID) {
+			if (q.Query != "" && !strings.Contains(strings.ToLower(c.Title), strings.ToLower(q.Query))) || c.Type != typ || seenKeys[c.Key] || !s.d.Visibility.CollectionAllowed(v, &c) || (c.OwnerUserID != 0 && c.OwnerUserID != v.ID) {
 				continue
 			}
 			members, e := s.collectionItems(ctx, v, c.Key)

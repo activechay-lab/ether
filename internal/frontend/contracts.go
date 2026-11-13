@@ -215,6 +215,8 @@ type ItemQuery struct {
 	// #405). A plugin library whose presentation declares the kind still
 	// serves it; callers consult configured libraries before answering empty.
 	UnservedTypes []string
+	// ExcludedTypes contains core media type names excluded by the client.
+	ExcludedTypes []core.MediaType
 	Recursive     bool
 	Season        *int // Optional presented season number.
 	Filter        core.Filter
@@ -518,6 +520,7 @@ type ExternalRequest struct {
 // CollectionQuery requests viewer-scoped collection pagination. A nonpositive
 // Limit defaults to 50; larger requests are capped at 500.
 type CollectionQuery struct {
+	Query         string
 	Types         []core.MediaType
 	Offset, Limit int
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +38,7 @@ func requestedSpecialItems(r *http.Request) specialItems {
 	for _, value := range values {
 		for _, typ := range strings.Split(value, ",") {
 			switch strings.ToLower(strings.TrimSpace(typ)) {
-			case "":
+			case "", "userview":
 			case "boxset":
 				box = true
 			case "playlist":
@@ -526,7 +527,11 @@ func (i *instance) writeBoxSets(w http.ResponseWriter, r *http.Request, viewer *
 		http.Error(w, "Unavailable", http.StatusServiceUnavailable)
 		return
 	}
-	page, err := i.host.Experience.Collections(r.Context(), viewer, device(r), frontend.CollectionQuery{Offset: q.Offset, Limit: q.Limit})
+	if slices.Contains(q.ExcludedTypes, frontend.MediaType("boxset")) {
+		jsonReply(w, i.queryResult([]any{}, 0, q.Offset))
+		return
+	}
+	page, err := i.host.Experience.Collections(r.Context(), viewer, device(r), frontend.CollectionQuery{Query: q.Filter.Query, Offset: q.Offset, Limit: q.Limit})
 	if errors.Is(err, frontend.ErrNotAvailable) {
 		jsonReply(w, i.queryResult([]any{}, 0, q.Offset))
 		return

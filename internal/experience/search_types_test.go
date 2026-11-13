@@ -13,8 +13,12 @@ func TestSearchCandidateTypesRespectLibraryAccess(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		requested, want []core.MediaType
+		unserved        []string
+		excluded        []core.MediaType
 		sections        []core.LibraryID
 	}{
+		{name: "unsupported", unserved: []string{"musicalbum"}},
+		{name: "excluded", requested: []core.MediaType{core.TypeMovie}, excluded: []core.MediaType{core.TypeMovie}},
 		{name: "movie", requested: []core.MediaType{core.TypeMovie}, want: []core.MediaType{core.TypeMovie}},
 		{name: "episode", requested: []core.MediaType{core.TypeEpisode}, want: []core.MediaType{core.TypeEpisode}},
 		{name: "all", want: []core.MediaType{core.TypeMovie, core.TypeShow, core.TypeSeason, core.TypeEpisode}},
@@ -31,7 +35,7 @@ func TestSearchCandidateTypesRespectLibraryAccess(t *testing.T) {
 					return nil, nil
 				}},
 			}}
-			_, err := s.Search(t.Context(), viewer, core.Device{}, "star", frontend.ItemQuery{Types: tc.requested})
+			_, err := s.Search(t.Context(), viewer, core.Device{}, "star", frontend.ItemQuery{Types: tc.requested, UnservedTypes: tc.unserved, ExcludedTypes: tc.excluded})
 			if err != nil {
 				t.Fatal(err)
 			}
