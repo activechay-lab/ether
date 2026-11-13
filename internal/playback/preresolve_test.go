@@ -288,6 +288,7 @@ func TestMetadataProbeWithoutPrefetchOrPlaybackSession(t *testing.T) {
 					return nil, err
 				}
 				info := nativeInfo(src)
+				info.Duration = 90 * time.Minute
 				info.Streams = append(info.Streams, core.StreamInfo{Index: 2, Type: "subtitle", Codec: "subrip", Language: "en"}, core.StreamInfo{Index: 3, Type: "subtitle", Codec: "hdmv_pgs_subtitle", Language: "en"})
 				return info, nil
 			}, nil))

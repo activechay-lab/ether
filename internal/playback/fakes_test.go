@@ -672,6 +672,15 @@ func newHarness(t *testing.T, rels []*fakeRelease, ids []string, opts ...harness
 		clock:   &fakeClock{t: time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)},
 		dataDir: payloadTempDir(t),
 	}
+	// Synthetic titles describe the supplied fixture, whose duration can be
+	// deliberately short. Identity tests override the catalogue runtime below.
+	fixtureRuntime := time.Minute
+	if len(rels) > 0 && rels[0].Duration > 0 {
+		fixtureRuntime = rels[0].Duration
+	}
+	for _, title := range h.catalog.titles {
+		title.Runtime = fixtureRuntime
+	}
 	h.tr = newFakeTranscoder(h.engine)
 	h.cfg = config.Defaults(h.dataDir)
 	h.cfg.Server.DefaultStreamLimit = 0
