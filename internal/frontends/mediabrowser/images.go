@@ -2,6 +2,7 @@ package mediabrowser
 
 import (
 	"context"
+	"encoding/json"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/ids"
@@ -508,4 +509,48 @@ func taglessImage(images []frontend.Image, imageType string, index int) (fronten
 		return frontend.Image{}, false
 	}
 	return candidates[index], true
+}
+
+// mediaBrowserError uses the ProblemDetails shape returned by Jellyfin.
+func mediaBrowserError(w http.ResponseWriter, r *http.Request, status int) {
+	w.Header().Set("Content-Type", "application/problem+json")
+	w.WriteHeader(status)
+	if r.Method != http.MethodHead {
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "about:blank", "title": http.StatusText(status), "status": status})
+	}
+}
+
+// itemImages advertises only artwork with the same scoped tags as the item DTO.
+func (i *instance) itemImages(w http.ResponseWriter, r *http.Request) {
+	v, token, err := i.viewer(r)
+	if err != nil || v == nil {
+		mediaBrowserError(w, r, 401)
+		return
+	}
+	key, err := ids.ParseRatingKeyGUID(r.PathValue("itemId"))
+	if err != nil {
+		mediaBrowserError(w, r, 404)
+		return
+	}
+	if i.host.Experience == nil {
+		mediaBrowserError(w, r, 503)
+		return
+	}
+	detail, err := i.host.Experience.Item(i.identityContext(r), frontend.ItemRequest{Viewer: v, Device: device(r), Key: key})
+	if err != nil {
+		mediaBrowserError(w, r, 404)
+		return
+	}
+	tags, backdrops, _ := i.imageTags(r, detail, token)
+	images := []map[string]any{}
+	for _, kind := range []string{"Primary", "Logo", "Thumb", "Banner"} {
+		if tag, ok := tags[kind].(string); ok && tag != "" {
+			images = append(images, map[string]any{"ImageType": kind, "ImageTag": tag, "Size": 0})
+		}
+	}
+	for index, tag := range backdrops {
+		images = append(images, map[string]any{"ImageType": "Backdrop", "ImageIndex": index, "ImageTag": tag, "Size": 0})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(images)
 }

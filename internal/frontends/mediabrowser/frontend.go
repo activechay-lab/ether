@@ -62,6 +62,7 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 		inst.pages = newBrowseCache()
 	}
 	r.SetMiddleware(inst.routeMiddleware)
+	r.SetFallback(mediaBrowserError)
 	unmatched := &unmatchedLogger{}
 	r.SetUnmatched(func(req *http.Request, status int) { unmatched.log(inst, req, status) })
 	mounted := false
@@ -77,6 +78,10 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 		}
 		return current
 	}, inst.publicViewers, host.ClientIP, inst.webClient); err != nil {
+		return nil, err
+	}
+
+	if err := r.Handle("GET", "/Items/{itemId}/Images", http.HandlerFunc(inst.itemImages)); err != nil {
 		return nil, err
 	}
 
