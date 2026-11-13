@@ -720,9 +720,6 @@ func saveResumeRowTx(ctx context.Context, tx *sql.Tx, rec resumeRecord, hash str
 	if _, err := tx.ExecContext(ctx, `DELETE FROM playback_index WHERE user_id=? AND rating_key=? AND release_id<>?`, rec.userID, int64(rec.key), rec.release.ID); err != nil {
 		return "", err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM playback_probe WHERE user_id=? AND rating_key=? AND release_id<>?`, rec.userID, int64(rec.key), rec.release.ID); err != nil {
-		return "", err
-	}
 	var oldHash string
 	err = tx.QueryRowContext(ctx, `SELECT nzb_hash FROM playback_resume WHERE user_id=? AND rating_key=?`,
 		rec.userID, int64(rec.key)).Scan(&oldHash)

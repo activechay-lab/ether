@@ -177,6 +177,9 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 			res, cached, fromResume = nil, nil, false
 			continue
 		}
+		if cached == nil {
+			cached = m.persistedProbe(ctx, s.ident.userID, s.ident.key, res.Release.ID, res.NZB)
+		}
 		g, err := m.openGeneration(ctx, s, res, fallback, cached)
 		if err == nil && fromResume && !s.exact && !rememberedInfoCodecCurrent(g.infoSnapshot(), s.caps) {
 			m.dropGeneration(g)

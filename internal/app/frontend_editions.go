@@ -89,7 +89,11 @@ func (s surfaceEditions) Variants(ctx context.Context, req core.ResolveRequest, 
 		return nil, nil
 	}
 	req.User = s.app.withEffectiveAudioLanguages(ctx, req.User)
-	return s.app.resolver.Variants(ctx, req, max)
+	variants, err := s.app.resolver.Variants(ctx, req, max)
+	if err == nil && s.app.playback != nil {
+		variants = s.app.playback.WithCachedVariantInfo(ctx, req.User, req.Title, variants)
+	}
+	return variants, err
 }
 
 func (s surfaceEditions) RefillSearchCache(t *core.Title) <-chan struct{} {
