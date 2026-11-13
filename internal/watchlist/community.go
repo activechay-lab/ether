@@ -120,15 +120,35 @@ func (s *Service) syncCommunityFriends(ctx context.Context, us []core.User, only
 		st.Problem, st.Error = "", ""
 		titles, unmatched, e := s.communityTitles(ctx, token, f.ID)
 		source := "plex-community:" + f.ID
+
 		if e == nil {
-			// Each friend's source owns a snapshot, so moves between household and
-			// viewer attribution also remove the prior attribution atomically.
-			if u == nil {
-				st.Imported, e = s.replaceHouseholdFeedSnapshot(ctx, source, titles)
-			} else {
-				st.Imported, e = s.replaceOwnerFeedSnapshot(ctx, source, u, titles)
-			}
+			// The source lease also covers household attribution, across nodes.
+			// Re-read settings and viewer identity after the upstream fetch.
+			lockID := "friend:" + f.ID
+			e = s.withCommunityWriterLock(ctx, lockID, func() error {
+				current, err := s.settings(ctx)
+				if err != nil {
+					return err
+				}
+				if !current.Enabled || !current.Plex {
+					return errors.New("Plex watchlists are disabled")
+				}
+				if u == nil {
+					st.Imported, err = s.replaceHouseholdFeedSnapshot(ctx, source, titles)
+				} else {
+					latest, lookupErr := s.user(ctx, u.ID)
+					if lookupErr != nil {
+						return lookupErr
+					}
+					if latest.PlexID != u.PlexID || latest.UUID != u.UUID {
+						return errors.New("Viewer identity changed")
+					}
+					st.Imported, err = s.replaceOwnerFeedSnapshot(ctx, source, latest, titles)
+				}
+				return err
+			})
 		}
+
 		st.UnmatchedTitles = unmatched
 		if e != nil {
 			st.Problem = "upstream"

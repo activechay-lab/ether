@@ -38,6 +38,9 @@ CREATE INDEX watchlist_viewer ON watchlist_items(user_id,available,added);
 	// Cluster-wide record of the last scheduled pass, so a new leader
 	// continues the schedule rather than re-running at once.
 	store.Register("watchlist", 2, `CREATE TABLE watchlist_meta(k TEXT PRIMARY KEY, v TEXT NOT NULL DEFAULT '');`)
+	store.Register("watchlist", 4, `CREATE TABLE watchlist_community_jobs(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL,state TEXT NOT NULL,created_at INTEGER NOT NULL,started_at INTEGER NOT NULL DEFAULT 0,finished_at INTEGER NOT NULL DEFAULT 0,count INTEGER NOT NULL DEFAULT 0,error TEXT NOT NULL DEFAULT '',plex TEXT NOT NULL DEFAULT ''); CREATE UNIQUE INDEX watchlist_community_active ON watchlist_community_jobs(user_id) WHERE state IN ('queued','running'); CREATE INDEX watchlist_community_history ON watchlist_community_jobs(user_id,id);`)
+	store.Register("watchlist", 5, `CREATE TABLE watchlist_community_locks(user_id TEXT PRIMARY KEY,touched INTEGER NOT NULL);`)
+
 }
 
 type Source interface {

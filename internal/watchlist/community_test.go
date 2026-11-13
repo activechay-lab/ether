@@ -63,7 +63,7 @@ func TestCommunityFriendsPagedSnapshots(t *testing.T) {
 	for _, id := range []int64{101, 102} {
 		titles[core.MovieKey(id)] = core.Title{Key: core.MovieKey(id), Type: core.TypeMovie, Title: "Movie"}
 	}
-	s := New(db, Options{Catalog: fakeCatalog{titles: titles}, Community: &plextv.CommunityClient{Client: server.Client(), URL: server.URL}, OwnerToken: func(context.Context) (string, error) { return "owner", nil }, Tokens: func(context.Context, int64) (string, error) { return "", core.ErrUnauthorized }})
+	s := New(db, Options{Users: func(context.Context) ([]core.User, error) { return us, nil }, Catalog: fakeCatalog{titles: titles}, Community: &plextv.CommunityClient{Client: server.Client(), URL: server.URL}, OwnerToken: func(context.Context) (string, error) { return "owner", nil }, Tokens: func(context.Context, int64) (string, error) { return "", core.ErrUnauthorized }})
 	if err := s.SaveSettings(ctx, Settings{Enabled: true, Plex: true, CheckHours: 6}); err != nil {
 		t.Fatal(err)
 	}

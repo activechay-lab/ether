@@ -523,6 +523,15 @@ remains a
 separate opt-in for choices above the profile's resolution ceiling. The new
 mode is off by default.
 
+Plex may check whether these versions are available before Play. These checks
+keep the existing 2-second default so slow sources do not hold up detail pages.
+For unusual backends that need more time, set `plex.fileCheckTimeout` in
+`config.json` to a duration such as `"8s"` or `"15s"`, then restart Ether.
+The setting is config-only and is shared across clustered nodes; omitted or
+`"0s"` uses 2 seconds. A shorter client request deadline still wins. Longer
+checks can delay detail pages; an inconclusive check keeps Play available.
+This setting does not change playback preparation timeouts or release ranking.
+
 After a restart or candidate-cache expiry, an
 admitted detail-page warm-up that reuses your remembered release also requests a
 background search for versions. Your remembered source does not wait or change;

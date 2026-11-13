@@ -45,13 +45,17 @@ export function ViewerWatchlist({ viewerId }: { viewerId: number }) {
   const refreshWith = (action: "sync" | "check", done: string) =>
     run(action, async () => {
       if (action === "sync") {
-        const result = await apiFetch<{
-          items: Item[];
-          plex: string;
-          count: number;
-          failed: boolean;
-        }>(`/discovery/users/${viewerId}/sync`, { method: "POST", body: "{}" });
-        items.setData(result.items);
+        type SyncJob = { id: number; state: string; plex: string; count: number };
+        let job = await apiFetch<SyncJob>(`/discovery/users/${viewerId}/sync/jobs`, {
+          method: "POST", body: "{}",
+        });
+        const deadline = Date.now() + 6 * 60_000;
+        while ((job.state === "queued" || job.state === "running") && Date.now() < deadline) {
+          await new Promise((resolve) => setTimeout(resolve, 1500));
+          job = await apiFetch<SyncJob>(`/discovery/users/${viewerId}/sync/jobs/${job.id}`);
+        }
+        const result = { ...job, failed: job.state !== "completed" };
+        items.setData(await apiFetch<Item[]>(`/discovery/users/${viewerId}/`));
         const message =
           result.failed && result.plex === "synced"
             ? t("Watchlist sync incomplete")
