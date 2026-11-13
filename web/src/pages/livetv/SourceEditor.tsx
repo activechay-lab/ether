@@ -251,15 +251,21 @@ export function SourceEditor({
   const xtream = kind === "playlist" && auth.type === "xtream";
   const setAuth = (patch: SourceAuth) => setDraft((d) => ({ ...d, auth: { ...d.auth, ...patch } }));
   const plex = kind === "guide" && guideKind === "plex";
+  // GET never returns inline uploads, but the server keeps a stored upload
+  // when a save sends none (keepStoredUploads), so it still counts here.
+  const storedPlaylist = Boolean(
+    source?.hasPlaylist && !source.playlistUrl && source.auth?.type !== "xtream",
+  );
+  const storedGuide = Boolean(source?.hasGuide && !source.guideUrl && source.kind !== "plex");
   const canSave =
     draft.name.trim() !== "" &&
     (xtream
       ? Boolean(auth.server?.trim() && auth.username?.trim() && auth.password)
       : kind === "playlist"
-        ? Boolean(files.playlist || draft.playlist || draft.playlistUrl)
+        ? Boolean(files.playlist || draft.playlist || draft.playlistUrl || storedPlaylist)
         : plex
           ? Boolean(draft.lineupId && (draft.country || region) && draft.postalCode)
-          : Boolean(files.guide || draft.guide || draft.guideUrl));
+          : Boolean(files.guide || draft.guide || draft.guideUrl || storedGuide));
 
   const save = async () => {
     setBusy("save");
