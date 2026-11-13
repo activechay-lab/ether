@@ -119,15 +119,16 @@ func (a *App) buildPlaybackPresentation() {
 			}
 			return a.resolver.ProfileFor(core.ClientCaps{}, u).PreferredLanguages
 		},
-		PlexLayer: func(_ context.Context, user int64) (trackprefs.PlexLayer, bool) {
+		AccountLayer: func(_ context.Context, user int64) (trackprefs.AccountLayer, bool) {
 			if a.users == nil {
-				return trackprefs.PlexLayer{}, false
+				return trackprefs.AccountLayer{}, false
 			}
 			d, ok := a.users.PlexDefaults(user)
 			if !ok || !d.HasProfile {
-				return trackprefs.PlexLayer{}, false
+				return trackprefs.AccountLayer{}, false
 			}
-			return trackprefs.PlexLayer{
+			return trackprefs.AccountLayer{
+				Source:           "plex", // Account provenance identity, not a behavior switch.
 				AudioLanguage:    d.AudioLanguage,
 				AutoSelectAudio:  d.AutoSelectAudio,
 				SubtitleLanguage: d.SubtitleLanguage,

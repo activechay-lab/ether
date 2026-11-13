@@ -8,7 +8,7 @@ import (
 	"github.com/braedonsaunders/ether/internal/store"
 )
 
-func plexSelect(t *testing.T, layer PlexLayer, user int64, setup func(*Service)) Selection {
+func plexSelect(t *testing.T, layer AccountLayer, user int64, setup func(*Service)) Selection {
 	t.Helper()
 	ctx := context.Background()
 	db, err := store.OpenMemory(ctx)
@@ -16,9 +16,9 @@ func plexSelect(t *testing.T, layer PlexLayer, user int64, setup func(*Service))
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := New(db, Options{PlexLayer: func(_ context.Context, id int64) (PlexLayer, bool) {
+	s := New(db, Options{AccountLayer: func(_ context.Context, id int64) (AccountLayer, bool) {
 		if id != user {
-			return PlexLayer{}, false
+			return AccountLayer{}, false
 		}
 		return layer, true
 	}})
@@ -38,15 +38,15 @@ func plexSelect(t *testing.T, layer PlexLayer, user int64, setup func(*Service))
 	return sel
 }
 
-func TestPlexLayerAppliesWhenNothingStored(t *testing.T) {
-	sel := plexSelect(t, PlexLayer{AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, 7, nil)
+func TestAccountLayerAppliesWhenNothingStored(t *testing.T) {
+	sel := plexSelect(t, AccountLayer{Source: "plex", AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, 7, nil)
 	if sel.Audio != 0 || sel.Subtitle != 2 {
 		t.Fatalf("defaults %+v", sel)
 	}
 }
 
-func TestPlexLayerOwnerRulesWin(t *testing.T) {
-	sel := plexSelect(t, PlexLayer{AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, 7, func(s *Service) {
+func TestAccountLayerOwnerRulesWin(t *testing.T) {
+	sel := plexSelect(t, AccountLayer{Source: "plex", AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, 7, func(s *Service) {
 		r := Default()
 		r.AudioLanguages = []string{"en"}
 		r.SubtitleLanguages = []string{"en"}
@@ -60,8 +60,8 @@ func TestPlexLayerOwnerRulesWin(t *testing.T) {
 	}
 }
 
-func TestPlexLayerExplicitPickWins(t *testing.T) {
-	sel := plexSelect(t, PlexLayer{AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, 7, func(s *Service) {
+func TestAccountLayerExplicitPickWins(t *testing.T) {
+	sel := plexSelect(t, AccountLayer{Source: "plex", AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, 7, func(s *Service) {
 		info := core.MediaInfo{Streams: []core.StreamInfo{{Type: "audio", Language: "eng", Index: 1}}}
 		if err := s.Remember(context.Background(), 7, core.MovieKey(1), "audio", &info.Streams[0]); err != nil {
 			t.Fatal(err)
@@ -72,18 +72,18 @@ func TestPlexLayerExplicitPickWins(t *testing.T) {
 	}
 }
 
-func TestPlexLayerIsBaselineUnderScopedOverride(t *testing.T) {
+func TestAccountLayerIsBaselineUnderScopedOverride(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.OpenMemory(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	s := New(db, Options{PlexLayer: func(_ context.Context, id int64) (PlexLayer, bool) {
+	s := New(db, Options{AccountLayer: func(_ context.Context, id int64) (AccountLayer, bool) {
 		if id != 7 {
-			return PlexLayer{}, false
+			return AccountLayer{}, false
 		}
-		return PlexLayer{AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, true
+		return AccountLayer{Source: "plex", AudioLanguage: "ja", AutoSelectAudio: true, SubtitleLanguage: "en", SubtitleMode: "always"}, true
 	}})
 	r, err := s.GetRules(ctx, 7)
 	if err != nil || r.SubtitleMode != "always" || len(r.AudioLanguages) != 1 || r.AudioLanguages[0] != "ja" {
@@ -114,8 +114,8 @@ func TestPlexLayerIsBaselineUnderScopedOverride(t *testing.T) {
 	}
 }
 
-func TestPlexLayerViewerRulesWin(t *testing.T) {
-	sel := plexSelect(t, PlexLayer{AudioLanguage: "ja", AutoSelectAudio: true, SubtitleMode: "always"}, 7, func(s *Service) {
+func TestAccountLayerViewerRulesWin(t *testing.T) {
+	sel := plexSelect(t, AccountLayer{Source: "plex", AudioLanguage: "ja", AutoSelectAudio: true, SubtitleMode: "always"}, 7, func(s *Service) {
 		r := Default()
 		r.AudioLanguages = []string{"en"}
 		r.SubtitleMode = "off"

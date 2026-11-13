@@ -41,7 +41,7 @@ func TestPlaylistSequenceAndOrigin(t *testing.T) {
 
 func TestInitialTimelineCannotBeRewrittenByReplacement(t *testing.T) {
 	dir := t.TempDir()
-	p := player{c: Config{Output: dir}}
+	p := player{c: Config{Output: dir}, control: barrierControl{}}
 	r := Report{}
 	initial := playlist{entries: []entry{{index: 0, duration: 2}, {index: 1, duration: 2}, {index: 2, duration: 4}}}
 	if e := p.captureInitial(&r, initial, []byte("initial authored plan")); e != nil {

@@ -23,7 +23,7 @@ func TestSegmentBarrierBindingAndClock(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer events.Close()
-			p := player{c: Config{SegmentBarrierDir: filepath.Join(root, "barrier"), PauseBeforeIndex: 1}, playSession: "admitted-session", start: time.Now(), events: events}
+			p := player{c: Config{SegmentBarrierDir: filepath.Join(root, "barrier"), PauseBeforeIndex: 1}, control: barrierControl{}, start: time.Now(), events: events}
 			r := Report{Session: "client-session", InitialPlaylistSHA256: "initial", InitialTimeline: []time.Duration{0, 2 * time.Second, 4 * time.Second}, Segments: []Segment{{Index: 0}}}
 			b := Buffer{Started: true, Level: .005}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -99,3 +99,7 @@ func TestSegmentBarrierBindingAndClock(t *testing.T) {
 		})
 	}
 }
+
+type barrierControl struct{ Control }
+
+func (barrierControl) Session() string { return "admitted-session" }
