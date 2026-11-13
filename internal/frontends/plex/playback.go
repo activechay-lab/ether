@@ -302,13 +302,10 @@ func androidImageSubtitle(pr *Request, info frontend.MediaInfo, opts frontend.De
 	return false
 }
 
-// matroskaCarriesText reports whether a conversion for this client is
-// Matroska, whose segments carry the selected embedded text track. Plex for
-// Android and Android TV send subtitles=none ("the player draws it") with
-// the same request that ends in a Direct Stream: the player then reads the
-// track from the Matroska segments as it would from the file, so the run
-// has to mux it. Dropping it left the remux with no subtitle (#191).
-func matroskaCarriesText(p *playRequest, info frontend.MediaInfo) bool {
+// keepsSelectedText retains the selected track for clients rendering text
+// themselves. Apple Matroska clients read the muxed track; Android HLS uses
+// /library/streams sidecars, including when it requests subtitles=none.
+func keepsSelectedText(p *playRequest, info frontend.MediaInfo) bool {
 	if p.protocol == frontend.ProtocolDASH {
 		return false
 	}
@@ -604,7 +601,7 @@ func (s *Server) prepare(ctx context.Context, pr *Request, p *playRequest) (*fro
 		applySelections(p, ps.Info, s.audioLanguages(pr.User))
 		s.selectLegacyDecoderAudio(pr, p, ps.Info)
 		switch {
-		case p.subtitles == "none" && !matroskaCarriesText(p, ps.Info) && !androidImageSubtitle(pr, ps.Info, p.opts):
+		case p.subtitles == "none" && !keepsSelectedText(p, ps.Info) && !androidImageSubtitle(pr, ps.Info, p.opts):
 			// The track stays selected; nothing delivers it.
 			p.opts.SubtitleStream = -1
 		case p.opts.BurnSubtitles && (browserClient(pr) || plexAndroidClient(pr)):
@@ -1248,10 +1245,17 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 			return st, true
 		}
 		text := textSidecarCodec(st.Codec)
-		// Under subtitles=none a Matroska run still muxes the selected
-		// text track (matroskaCarriesText); its row is the segments copy
-		// below, as PMS answers a text track it copies into Plex for
-		// Android's Matroska segments.
+		if dec.AndroidMatroskaHLS && dec.Container == frontend.ContainerMatroska && text && !dec.BurnSubtitles && dec.SubtitleStream == src.Index {
+			// Android's copied Matroska HLS keeps text outside the mux.
+			// Preserve its sidecar even with subtitles=none (client renders).
+			st.Decision, st.Location, st.Format = "copy", "sidecar", st.Codec
+			if st.Key == "" {
+				st.Key = "/library/streams/" + strconv.FormatInt(st.ID, 10)
+			}
+			return st, true
+		}
+		// Other Matroska clients read the selected text track from the
+		// segments even when they request subtitles=none.
 		inSegments := text && dec.Container == frontend.ContainerMatroska && !dec.BurnSubtitles && dec.SubtitleStream >= 0 && dec.SubtitleStream == src.Index
 		switch {
 		case subtitles == "none" && !inSegments && !dec.BurnSubtitles:
@@ -1297,7 +1301,7 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 		// not request a sidecar. The transcoder muxes that track on the
 		// same clock as the video; a sidecar key would describe a file
 		// this player never opens.
-		if st.Location == "sidecar" && dec.Container == frontend.ContainerMatroska && textSidecarCodec(st.Codec) && !dec.BurnSubtitles {
+		if st.Location == "sidecar" && dec.Container == frontend.ContainerMatroska && !dec.AndroidMatroskaHLS && textSidecarCodec(st.Codec) && !dec.BurnSubtitles {
 			st.Decision = "copy"
 			st.Location = "segments-av"
 			st.Key = ""

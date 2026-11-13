@@ -721,13 +721,6 @@ func (s *Session) serveFiles(w http.ResponseWriter, r *http.Request, paths []str
 	s.setSegmentHeaders(w)
 	armSegmentDeadline(w)
 	content := io.ReadSeeker(bytes.NewReader(buf.Bytes()))
-	if s.container == ContainerMatroska && s.matroskaTitleClock {
-		var err error
-		content, err = matroskaTitleReader(bytes.NewReader(buf.Bytes()), int64(buf.Len()))
-		if err != nil {
-			return false
-		}
-	}
 	s.serveCounted(w, r, filepath.Base(paths[0]), mod, content, t, n)
 	return true
 }
@@ -828,7 +821,7 @@ func (s *Session) setSegmentHeaders(w http.ResponseWriter) {
 		ct = "video/mp4"
 	case s.container == ContainerMatroska:
 		ct = "video/x-matroska"
-		if s.matroskaTitleClock {
+		if s.androidMatroskaHLS {
 			ct = "video/MP2T"
 		}
 	}
@@ -856,18 +849,12 @@ func (s *Session) serveOpened(w http.ResponseWriter, r *http.Request, f *os.File
 	name := filepath.Base(f.Name())
 	if n == InitSegment {
 		name = initSegmentName(s.container)
-		if s.matroskaTitleClock && s.container == ContainerMatroska {
+		if s.androidMatroskaHLS && s.container == ContainerMatroska {
 			w.Header().Set("Content-Type", "application/octet-stream")
 		}
 	}
 	armSegmentDeadline(w)
 	var content io.ReadSeeker = f
-	if n != InitSegment && s.container == ContainerMatroska && s.matroskaTitleClock {
-		content, err = matroskaTitleReader(f, st.Size())
-		if err != nil {
-			return false
-		}
-	}
 	s.serveCounted(w, r, name, st.ModTime(), content, t, n)
 	return true
 }

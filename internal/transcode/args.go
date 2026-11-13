@@ -454,7 +454,7 @@ func buildCodecArgs(s runSpec) []string {
 			// A copied stream can carry a coarse demuxer time base. Explicitly
 			// retain its rate in Matroska DefaultDuration instead of the muxer's
 			// guessed 30fps. This does not duplicate or drop copied packets.
-			if d.MatroskaTitleClock && container == ContainerMatroska && v.FrameRate > 0 && !v.VariableFrameRate {
+			if d.AndroidMatroskaHLS && container == ContainerMatroska && v.FrameRate > 0 && !v.VariableFrameRate {
 				args = append(args, "-r:v", strconv.FormatFloat(v.FrameRate, 'f', 6, 64))
 			}
 			if d.StripDolbyVision {
@@ -1070,7 +1070,7 @@ func escapeFilterValue(v string) string {
 // inside segmented Matroska. Burned and non-Matroska decisions keep the
 // sidecar path. A nil return means the run stays subtitle-free (-sn).
 func matroskaTextSubtitle(s runSpec) *core.StreamInfo {
-	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles {
+	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles || s.Decision.AndroidMatroskaHLS {
 		return nil
 	}
 	sub := findStream(s.Info, s.Decision.SubtitleStream, "subtitle")

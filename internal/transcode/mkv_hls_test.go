@@ -245,7 +245,7 @@ func TestMatroskaChunkArgsKeepPositiveTitleClock(t *testing.T) {
 
 // Pin the actual player-visible clock and cadence, including a resumed run.
 // Inspect packets too: every generated segment must open on a video keyframe.
-func TestIntegrationAndroidMatroskaTitleClock(t *testing.T) {
+func TestIntegrationAndroidMatroskaCopyClockAndRate(t *testing.T) {
 	// Indexed long GOPs remain whole even beyond the ordinary snap limit.
 	plan := buildTimeline(40*time.Second, 4*time.Second, timelineOptions{
 		steadyMode: ModeCopy, snap: true, strictKeyframes: true,
@@ -261,7 +261,7 @@ func TestIntegrationAndroidMatroskaTitleClock(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, start := range []time.Duration{0, 8 * time.Second} {
-		d := core.Decision{Kind: core.DecisionRemux, Container: ContainerMatroska, VideoCopy: true, AudioCopy: true, AudioStream: 1, SubtitleStream: -1, MatroskaTitleClock: true}
+		d := core.Decision{Kind: core.DecisionRemux, Container: ContainerMatroska, VideoCopy: true, AudioCopy: true, AudioStream: 1, SubtitleStream: -1, AndroidMatroskaHLS: true}
 		hs, err := e.m.StartHLS(t.Context(), core.HLSRequest{SessionID: "android-" + start.String(), InputURL: e.url("android.mkv"), Info: *info, Decision: d, StartOffset: start})
 		if err != nil {
 			t.Fatal(err)
@@ -289,7 +289,7 @@ func TestIntegrationAndroidMatroskaTitleClock(t *testing.T) {
 				t.Fatalf("rate/packets: %s", out)
 			}
 			at, err := strconv.ParseFloat(got.Packets[0].PTS, 64)
-			want := start.Seconds() + float64(n)*4
+			want := start.Seconds() + float64(n)*4 + matroskaOrigin.Seconds()
 			if err != nil || math.Abs(at-want) > 0.05 || !strings.Contains(got.Packets[0].Flags, "K") {
 				t.Fatalf("first video packet %+v at %.3f, want keyframe at %.3f", got.Packets[0], at, want)
 			}
