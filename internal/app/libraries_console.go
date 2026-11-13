@@ -127,6 +127,8 @@ func (c *librariesConsole) decorate(ctx context.Context, lib core.Library) libra
 		if items, _, err := c.services(); err == nil && items != nil {
 			if rec, err := items.GetKindByLibrary(ctx, lib.ID); err == nil {
 				decl := rec.Decl
+				decl.Label = c.catalogueLabel(ctx, lib.PluginID, decl.Label, lib.Name)
+				decl.Library.Name = c.catalogueLabel(ctx, lib.PluginID, decl.Library.Name, lib.Name)
 				dto.Kind = &decl
 				if tally, err := items.LibraryTally(ctx, lib.ID); err == nil {
 					n := 0

@@ -977,8 +977,6 @@ export function ConnectedServices({
                 (step) => step.id === "catalog" && step.complete,
               ) === true
             }
-            href="/libraries"
-            usage={t("Names titles and supplies artwork throughout the catalog.")}
           >
             {tmdbForm}
             <TmdbCatalogueSettings

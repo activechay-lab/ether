@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/plugins"
 	"net/http"
@@ -62,9 +63,9 @@ func (c *librariesConsole) handleCatalogueSources(w http.ResponseWriter, r *http
 			}
 			if e := rec.Manifest.EffectiveEther(); e != nil {
 				for _, kind := range e.Contributes.MediaKinds {
-					src := catalogueSource{ID: "plugin:" + rec.ID + ":" + kind.Key, Name: kind.Label, Owner: rec.Name, Group: "plugin", PluginID: rec.ID, KindKey: kind.Key, MediaTypes: []string{kind.Key}, Health: health, Libraries: []catalogueLibrary{}}
+					src := catalogueSource{ID: "plugin:" + rec.ID + ":" + kind.Key, Name: c.catalogueLabel(r.Context(), rec.ID, kind.Label, rec.Name), Owner: rec.Name, Group: "plugin", PluginID: rec.ID, KindKey: kind.Key, MediaTypes: []string{kind.Key}, Health: health, Libraries: []catalogueLibrary{}}
 					if kind.Library.Name != "" {
-						src.Name = kind.Library.Name
+						src.Name = c.catalogueLabel(r.Context(), rec.ID, kind.Library.Name, src.Name)
 					}
 					if c.app.pluginsRT.pluginitems != nil {
 						for _, lib := range libs {
@@ -140,4 +141,22 @@ func (c *librariesConsole) handleCatalogueSourceSync(w http.ResponseWriter, r *h
 		return
 	}
 	libJSON(w, 200, map[string]bool{"ok": true})
+}
+
+// Resolve plugin-owned catalogue copy at the owner API boundary; missing
+// translations fall back to a readable library/plugin name, never a raw key.
+func (c *librariesConsole) catalogueLabel(ctx context.Context, pluginID, value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if key, ok := strings.CutPrefix(value, "$t:"); ok {
+		if c.app.pluginsRT != nil && c.app.pluginsRT.mgr != nil {
+			if text, found := c.app.pluginsRT.mgr.ResolveText(ctx, pluginID, key, "en"); found && strings.TrimSpace(text) != "" {
+				return text
+			}
+		}
+		return fallback
+	}
+	if value == "" {
+		return fallback
+	}
+	return value
 }

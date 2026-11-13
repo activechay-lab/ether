@@ -25,8 +25,8 @@ export function IntegrationTab({
   onToggle?: (on: boolean) => void;
   disabled?: boolean;
   test?: ReactNode;
-  href: string;
-  usage: string;
+  href?: string;
+  usage?: string;
   current?: boolean;
   children: ReactNode;
 }) {
@@ -55,16 +55,18 @@ export function IntegrationTab({
         </div>
       </header>
       <div className="space-y-4">{children}</div>
-      <div className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
-        <Link to={href} className="text-primary hover:underline">
-          {usage}
-        </Link>
-        {current !== undefined && (
-          <Badge variant={current ? "success" : "secondary"}>
-            {current ? t("Current source") : t("Not selected")}
-          </Badge>
-        )}
-      </div>
+      {href && usage ? (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-fg-muted">
+          <Link to={href} className="text-primary hover:underline">
+            {usage}
+          </Link>
+          {current !== undefined && (
+            <Badge variant={current ? "success" : "secondary"}>
+              {current ? t("Current source") : t("Not selected")}
+            </Badge>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
