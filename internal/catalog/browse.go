@@ -1244,7 +1244,7 @@ func (c *Catalog) FacetFilter(ctx context.Context, f core.Filter, facet string) 
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	fkey := fmt.Sprintf("%+v|%s", normalizeGateCacheFilter(f), facet) + c.consoleGateKey(f)
+	fkey := fmt.Sprintf("%+v|%s", digestExcluded(normalizeGateCacheFilter(f)), facet) + excludedKey(f) + c.consoleGateKey(f)
 	c.cacheMu.RLock()
 	ent, cached := c.facetCache[fkey]
 	c.cacheMu.RUnlock()
@@ -1294,7 +1294,7 @@ func facetFamilyKey(f core.Filter, facet string) string {
 	clearGateFields(&f)
 	f.HiddenMovieSeq, f.HiddenShowSeq, f.HiddenEpisodeSeq = 0, 0, 0
 	f.AvailabilityKeepKeys = nil
-	return "family|" + fmt.Sprintf("%+v|%s", f, facet)
+	return "family|" + fmt.Sprintf("%+v|%s", digestExcluded(f), facet) + excludedKey(f)
 }
 
 // jumpBarRecountEvery is the most a jump bar's counts lag the catalogue.
@@ -1351,7 +1351,7 @@ func (c *Catalog) countFacet(ctx context.Context, f core.Filter, facet string) (
 	}
 	gen := c.writeGen.Load()
 	minBucket := c.minuteBucket()
-	fkey := fmt.Sprintf("%+v|%s", normalizeGateCacheFilter(f), facet) + c.consoleGateKey(f)
+	fkey := fmt.Sprintf("%+v|%s", digestExcluded(normalizeGateCacheFilter(f)), facet) + excludedKey(f) + c.consoleGateKey(f)
 	base, args, err := c.browseWhere(f)
 	if err != nil {
 		return nil, err

@@ -55,3 +55,21 @@ func keySetDigest(keys []core.RatingKey) string {
 	}
 	return strconv.Itoa(len(keys)) + ":" + hex.EncodeToString(h.Sum(nil))
 }
+
+// digestExcluded drops a large exclusion set from a filter about to be
+// formatted into a cache key; excludedKey supplies its digest instead.
+func digestExcluded(f core.Filter) core.Filter {
+	if len(f.ExcludeKeys) > inlineKeyLimit {
+		f.ExcludeKeys = nil
+	}
+	return f
+}
+
+// excludedKey is the cache-key suffix for a large exclusion set.
+func excludedKey(f core.Filter) string {
+	if len(f.ExcludeKeys) > inlineKeyLimit {
+		return "|excluded:" + keySetDigest(f.ExcludeKeys)
+	}
+	return ""
+}
+
