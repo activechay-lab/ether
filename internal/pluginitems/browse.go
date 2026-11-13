@@ -285,26 +285,27 @@ LIMIT ?`
 
 func scanItemRowWithAdded(sc rowScanner) (core.KindItem, int64, error) {
 	var (
-		it         core.KindItem
-		refStr     string
-		seq        int64
-		pluginID   string
-		kindKey    string
-		libID      int64
-		parentRef  string
-		idx        int64
-		year       int64
-		playable   int
-		childCount int64
-		leafCount  int64
-		hintsRaw   string
-		fieldsRaw  string
-		addedAt    int64
+		it             core.KindItem
+		refStr         string
+		seq            int64
+		pluginID       string
+		kindKey        string
+		libID          int64
+		parentRef      string
+		idx            int64
+		year           int64
+		playable       int
+		childCount     int64
+		leafCount      int64
+		hintsRaw       string
+		fieldsRaw      string
+		unavailableRaw string
+		addedAt        int64
 	)
 	if err := sc.Scan(
 		&refStr, &seq, &pluginID, &kindKey, &libID, &it.ID, &parentRef, &it.Level, &idx,
 		&it.Title, &it.SortTitle, &it.Summary, &year, &it.Released, &it.Rating,
-		&playable, &childCount, &leafCount, &hintsRaw, &fieldsRaw, &it.ETag, &addedAt,
+		&playable, &childCount, &leafCount, &hintsRaw, &fieldsRaw, &it.ETag, &unavailableRaw, &addedAt,
 	); err != nil {
 		return core.KindItem{}, 0, err
 	}
@@ -315,7 +316,12 @@ func scanItemRowWithAdded(sc rowScanner) (core.KindItem, int64, error) {
 	}
 	it.Index = int(idx)
 	it.Year = int(year)
-	it.Playable = playable != 0
+	if unavailableRaw != "" {
+		if err := json.Unmarshal([]byte(unavailableRaw), &it.Unavailable); err != nil {
+			return core.KindItem{}, 0, err
+		}
+	}
+	it.Playable = playable != 0 && it.Unavailable == nil
 	it.ChildCount = int(childCount)
 	it.LeafCount = int(leafCount)
 	if hintsRaw != "" && hintsRaw != "{}" {

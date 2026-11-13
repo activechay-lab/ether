@@ -78,6 +78,7 @@ var tierPinnedIndexes = func() map[string]bool {
 		"catalog_titles_console_language_votes_page": true,
 		"catalog_titles_console_year_title_page":     true,
 		"catalog_titles_type_browse_year":            true,
+		"catalog_titles_type_browse_sort":            true,
 		"catalog_titles_show":                        true,
 		"catalog_titles_episode_recent":              true,
 		"catalog_titles_warm_stale":                  true,

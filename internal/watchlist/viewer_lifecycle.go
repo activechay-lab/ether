@@ -8,4 +8,6 @@ func init() {
 	store.RegisterViewerTable("watchlist", "watchlist_items", "user_id", store.ViewerMergeMove, "item_key", "source")
 	store.RegisterViewerTable("watchlist", "watchlist_episodes", "user_id", store.ViewerMergeMove, "item_key", "episode_key")
 	store.RegisterViewerTable("watchlist", "watchlist_community_jobs", "user_id", store.ViewerMergeDrop)
+	store.RegisterViewerTable("watchlist", "watchlist_community_locks", "user_id", store.ViewerMergeDrop)
+	store.RegisterViewerTable("watchlist", "watchlist_availability_jobs", "user_id", store.ViewerMergeDrop)
 }
