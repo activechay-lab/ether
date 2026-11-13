@@ -96,21 +96,17 @@ describe("New release modes", () => {
     });
   });
 
-  it("lives in per-library Settings, not Sources or a global page", async () => {
-    renderApp("/libraries/1/settings");
+  it("lives on the TMDB integration with separate movie and TV controls", async () => {
+    renderApp("/services/tmdb");
     await settleUi(() => {
-      expect(screen.getByRole("radio", { name: /When they can play/ })).toBeVisible();
+      expect(screen.getAllByRole("radio", { name: /When they can play/ })[0]!).toBeVisible();
     });
-    expect(screen.getByText("Recommended")).toBeVisible();
+    expect(screen.getAllByText("Recommended")[0]).toBeVisible();
     expect(
       screen.getByText(
         "A new movie appears once Ether finds a release you can play with your quality settings. Ether checks for you automatically.",
       ),
     ).toBeVisible();
-    expect(screen.getByRole("link", { name: /waiting for a release/ })).toHaveAttribute(
-      "href",
-      "/libraries/1?waiting=1",
-    );
     expect(
       screen.queryByRole("switch", { name: "Look for playable releases" }),
     ).not.toBeInTheDocument();
@@ -130,7 +126,7 @@ describe("New release modes", () => {
   });
 
   it("saves On digital release for Movies without turning off TV monitoring", async () => {
-    const { fake } = renderApp("/libraries/1/settings");
+    const { fake } = renderApp("/services/tmdb");
     await settleUi(() => {
       expect(screen.getByRole("radio", { name: /On digital release/ })).toBeVisible();
     });
@@ -154,17 +150,17 @@ describe("New release modes", () => {
   });
 
   it("edits TV Shows release mode independently with episode copy", async () => {
-    const { fake } = renderApp("/libraries/2/settings");
+    const { fake } = renderApp("/services/tmdb");
     await settleUi(() => {
-      expect(screen.getByRole("radio", { name: /When they can play/ })).toBeVisible();
+      expect(screen.getAllByRole("radio", { name: /When they can play/ })[0]!).toBeVisible();
     });
-    expect(screen.queryByRole("radio", { name: /On digital release/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("radio", { name: /On digital release/ })).toHaveLength(1);
     expect(
       screen.getByText(
         "A new episode or show appears once Ether finds a release you can play with your quality settings. Ether checks for you automatically.",
       ),
     ).toBeVisible();
-    fireEvent.click(screen.getByRole("radio", { name: /Right away/ }));
+    fireEvent.click(screen.getAllByRole("radio", { name: /Right away/ })[1]!);
     const bar = screen.getByRole("region", { name: "Unsaved changes" });
     fireEvent.click(within(bar).getByRole("button", { name: "Save changes" }));
     await settleUi(() => {
@@ -196,16 +192,16 @@ describe("New release modes", () => {
   });
 
   it("merges the release-date gate into the three release cards", async () => {
-    renderApp("/libraries/1/settings");
+    renderApp("/services/tmdb");
     expect(await screen.findByRole("radio", { name: /On digital release/ })).toBeVisible();
-    fireEvent.click(screen.getByRole("radio", { name: /Right away/ }));
+    fireEvent.click(screen.getAllByRole("radio", { name: /Right away/ })[0]!);
     expect(
       screen.queryByRole("switch", { name: "Wait for digital or physical release" }),
     ).not.toBeInTheDocument();
   });
 
   it("edits and saves Home-release offset (days) alongside On digital release", async () => {
-    const { fake } = renderApp("/libraries/1/settings");
+    const { fake } = renderApp("/services/tmdb");
     await settleUi(() => {
       expect(screen.getByRole("radio", { name: /On digital release/ })).toBeVisible();
     });

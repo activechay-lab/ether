@@ -125,6 +125,14 @@ function LibrariesList() {
         <div className="libraries-grid">
           {libs.map((lib, i) => {
             const shown = publishedTo(lib);
+            const sources = registry.data
+              ?.filter(
+                (source) =>
+                  lib.sources?.includes(source.id) ||
+                  source.libraries.some((item) => item.id === lib.id),
+              )
+              .map(sourceLabel)
+              .join(", ");
             const syncBad = lib.sync?.lastError;
             return (
               <section key={lib.id} className="library-card" aria-label={lib.name}>
@@ -137,7 +145,12 @@ function LibrariesList() {
                       {lib.name}
                     </Link>
                     <p className="library-card-meta">
-                      {sourceBadge(lib)}
+                      {sources || sourceBadge(lib)}
+                      {sources &&
+                      lib.source === "filter" &&
+                      Object.keys(lib.filter ?? {}).some((key) => key !== "type")
+                        ? ` · ${t("Saved filter")}`
+                        : ""}
                       {typeof lib.itemCount === "number"
                         ? ` · ${tn(lib.itemCount, "{count} item", "{count} items", {
                             count: formatNumber(lib.itemCount, 0),

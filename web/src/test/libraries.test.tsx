@@ -32,10 +32,9 @@ describe("Libraries workspace", () => {
     const { fake } = renderApp("/libraries");
     fireEvent.click(await screen.findByRole("button", { name: "New library" }, { timeout: 15000 }));
     expect(await screen.findByText("Where do titles come from?")).toBeInTheDocument();
-    expect(
-      await screen.findByText("From Demo books · EPUB and audiobook library"),
-    ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Movies or TV from TMDB/ }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /TMDB Movies/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: /Saved filter/ }));
     fireEvent.change(await screen.findByLabelText("Library name"), {
       target: { value: "Weekend films" },
     });
@@ -53,6 +52,8 @@ describe("Libraries workspace", () => {
   it("creates a library from a collection through the From a collection step", async () => {
     const { fake } = renderApp("/libraries");
     fireEvent.click(await screen.findByRole("button", { name: "New library" }, { timeout: 15000 }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: /TMDB Movies/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(await screen.findByRole("button", { name: /From a collection/ }));
     await new Promise((r) => setTimeout(r, 300));
 
@@ -86,8 +87,11 @@ describe("Libraries workspace", () => {
       return undefined;
     });
     fireEvent.click(await screen.findByRole("button", { name: "New library" }, { timeout: 15000 }));
-    const install = await screen.findByRole("link", { name: "Install a plugin" });
-    expect(install).toHaveAttribute("href", "/plugins");
+    fireEvent.click(await screen.findByRole("button", { name: "Add catalogue source" }));
+    const install = await within(await screen.findByRole("dialog")).findByRole("link", {
+      name: /Plugin/,
+    });
+    expect(install).toHaveAttribute("href", "/plugins/marketplace");
   });
 
   it("browses a plugin library and re-matches from the item drawer", async () => {
@@ -103,10 +107,8 @@ describe("Libraries workspace", () => {
 
   it("shows plugin-only sections in a plugin library's settings", async () => {
     renderApp("/libraries/3/settings");
-    expect(
-      await screen.findByText("Keeping it up to date", {}, { timeout: 15000 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Downloaded files")).toBeInTheDocument();
+    expect(await screen.findByText("Basics", {}, { timeout: 15000 })).toBeInTheDocument();
+    expect(screen.queryByText("Keeping it up to date")).not.toBeInTheDocument();
     expect(screen.queryByText("New releases")).not.toBeInTheDocument();
     expect(screen.queryByText("Source: TMDB")).not.toBeInTheDocument();
   });
@@ -116,6 +118,8 @@ describe("Libraries workspace", () => {
     await screen.findByText("Quality profile", {}, { timeout: 15000 });
     fireEvent.click(screen.getByRole("button", { name: "Quality profile" }));
     fireEvent.click(await screen.findByRole("option", { name: "4K" }, { timeout: 15000 }));
+    expect(calls(fake, "PATCH", "/libraries/1")).toHaveLength(0);
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await settleUi(() => {
       const patch = calls(fake, "PATCH", "/libraries/1").at(-1);
       expect(patch?.body).toMatchObject({ qualityProfile: "4K" });

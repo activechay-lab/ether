@@ -76,7 +76,7 @@ describe("Settings", () => {
     expect(screen.queryByText("Jellyfin TV")).toBeNull();
   });
   it("saves automatic franchise visibility without changing other catalog settings", async () => {
-    const { fake } = renderApp("/libraries/1/settings");
+    const { fake } = renderApp("/services/tmdb");
     const toggle = await screen.findByLabelText("Hide automatic franchise collections", {}, WAIT);
     expect(toggle).not.toBeChecked();
     const before = { ...fake.state.config.catalog };
@@ -133,12 +133,12 @@ describe("Settings", () => {
     );
   });
 
-  it("lists integrations without source cards and keeps TMDB on this page", async () => {
+  it("lists catalogue sources with TMDB first alongside other integrations", async () => {
     renderApp("/services");
-    const required = await screen.findByRole("region", { name: "Required" }, WAIT);
+    const required = await screen.findByRole("region", { name: "Catalogues" }, WAIT);
     expect(screen.queryByRole("region", { name: "Essentials" })).toBeNull();
     expect(within(required).getByRole("listitem", { name: "TMDB" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Set up TMDB" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Manage TMDB" })).toBeEnabled();
     const artwork = screen.getByRole("region", { name: "Artwork and ratings" });
     const posters = await within(artwork).findByRole("listitem", { name: "PostersPlus" }, WAIT);
     const ratings = within(artwork).getByRole("listitem", { name: "OMDb and MDBList" });
@@ -190,13 +190,9 @@ describe("Settings", () => {
 
   it("saves and tests the TMDB key from Integrations", async () => {
     const { fake } = renderApp("/services/tmdb");
-    fireEvent.change(await screen.findByLabelText("TMDB API key", {}, WAIT), {
+    fireEvent.change(await screen.findByLabelText("Your own TMDB key (optional)", {}, WAIT), {
       target: { value: "tmdb-key" },
     });
-    expect(screen.getByRole("link", { name: "themoviedb.org" })).toHaveAttribute(
-      "href",
-      "https://www.themoviedb.org/settings/api",
-    );
     fireEvent.click(screen.getByRole("button", { name: "Test TMDB key" }));
     await waitFor(() => expect(calls(fake, "POST", "/test/tmdb")).toHaveLength(1), WAIT);
     expect(calls(fake, "POST", "/test/tmdb")[0]!.body).toEqual({ key: "tmdb-key" });

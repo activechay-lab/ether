@@ -83,9 +83,12 @@ export function sourceName(source: CatalogueSource) {
     : t("{name} movies", { name: source.name });
 }
 export function sourceLabel(source: CatalogueSource) {
+  const name = sourceName(source);
   return source.group === "builtin"
-    ? sourceName(source)
-    : `${source.owner} · ${sourceName(source)}`;
+    ? name
+    : source.group === "plugin" && source.owner.toLowerCase().includes(name.toLowerCase())
+      ? source.owner
+      : `${source.owner} · ${name}`;
 }
 
 export function catalogueGroups(sources: CatalogueSource[]) {

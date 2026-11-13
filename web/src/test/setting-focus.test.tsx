@@ -16,7 +16,7 @@ afterEach(async () => {
 
 describe("⌘K setting jump", () => {
   it("opens and highlights a setting by key after the language changes", async () => {
-    const href = settingHref("/libraries/1/settings", "minPopularity", "browsable");
+    const href = settingHref("/services/tmdb", "minPopularity", "browsable");
     expect(href).toContain("#setting=");
     await loadLocale("fr");
     renderApp(href);

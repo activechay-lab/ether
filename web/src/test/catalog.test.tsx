@@ -13,20 +13,6 @@ const title = {
 };
 
 describe("Catalog workspace", () => {
-  it("distinguishes catalog size from the rules result", async () => {
-    const { fake } = renderAppWith("/libraries/1/settings", (_method, path) => {
-      if (path === "/catalog/visibility/preview") return { total: 1000, visible: 700, hidden: 300 };
-    });
-    expect(
-      await screen.findByText("700 shown after your rules", {}, { timeout: 15000 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText("Catalog size before rules")).toBeInTheDocument();
-    expect(screen.getByText("1,000 titles")).toBeInTheDocument();
-    expect(calls(fake, "POST", "/catalog/visibility/preview").at(-1)?.body).toMatchObject({
-      visibilityDefault: "show",
-    });
-  });
-
   it("browses pages, filters, views and title details", async () => {
     const { fake } = renderAppWith("/catalog", (_method, path, _body, query) => {
       if (path === "/catalog/browse")
@@ -238,14 +224,10 @@ describe("Catalog workspace", () => {
   });
 
   it("keeps all catalog settings and saves changes from the new page", async () => {
-    const { fake } = renderAppWith("/libraries/1/settings", () => undefined);
+    const { fake } = renderAppWith("/services/tmdb", () => undefined);
     const language = await screen.findByLabelText("Language");
-    expect(screen.getByText("Source: TMDB")).toBeInTheDocument();
-    expect(
-      screen.getByText("These settings apply to every library that uses TMDB."),
-    ).toBeInTheDocument();
     expect(screen.queryByText("Catalog healthy")).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Your catalog" })).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Your catalog" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Your saved release-date requirement/)).not.toBeInTheDocument();
     expect(screen.getByLabelText("Region")).toBeInTheDocument();
     expect(screen.queryByLabelText("Minimum popularity")).not.toBeInTheDocument();

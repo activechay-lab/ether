@@ -60,7 +60,9 @@ describe("Server › Plugins (WS10a)", () => {
     expect(screen.getByText("Stream Addon")).toBeTruthy();
 
     expect(screen.getByText("Update v1.3.0")).toBeTruthy();
-    expect(screen.getAllByText("Unverified")).toHaveLength(2);
+    expect(
+      within(screen.getByRole("article", { name: "Dub language" })).getByText("Unverified"),
+    ).toBeVisible();
     expect(screen.getByText("Trying out", { selector: "span *, span" })).toBeTruthy();
 
     const plutoSwitch = screen.getByRole("switch", { name: "Enable Pluto TV" }) as HTMLInputElement;

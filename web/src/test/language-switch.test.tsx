@@ -25,7 +25,7 @@ afterEach(async () => {
 
 describe("switching language", () => {
   it("keeps unsaved edits and re-renders the page in the new language", async () => {
-    const { fake } = renderApp("/libraries/1/settings");
+    const { fake } = renderApp("/services/tmdb");
     fireEvent.click(await screen.findByRole("button", { name: "More options: What's browsable" }));
     const popularity = screen.getByLabelText("Minimum popularity");
     fireEvent.change(popularity, { target: { value: "42" } });
