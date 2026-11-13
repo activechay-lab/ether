@@ -57,7 +57,8 @@ describe("Owner usability", () => {
     fireEvent.click(within(editor).getByRole("button", { name: "Close" }));
     await waitFor(() => expect(screen.queryByRole("dialog", { name: dialog })).toBeNull(), WAIT);
     expect(control.isConnected).toBe(true);
-    expect(screen.getByRole("button", { name: trigger })).toBe(control);
+    // The dialog unmounts before its exit animation releases the page from inert.
+    await waitFor(() => expect(screen.getByRole("button", { name: trigger })).toBe(control), WAIT);
   });
 
   it("closes a nested collection assistant with Escape while keeping the editor open", async () => {

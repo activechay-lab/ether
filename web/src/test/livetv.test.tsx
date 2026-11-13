@@ -116,7 +116,8 @@ function backend(
       if (data instanceof Response) return data;
       if (data !== undefined) return new Response(JSON.stringify(data), { status: 200 });
       data = [];
-      if (/\/livetv\/channels\/[^/]+\/timeline\?/.test(url))
+      if (url.endsWith("/config")) data = { config: { liveTV: { enabled: true } } };
+      else if (/\/livetv\/channels\/[^/]+\/timeline\?/.test(url))
         data = {
           channelId: url.split("/channels/")[1]?.split("/")[0],
           timezone: "UTC",
@@ -482,7 +483,9 @@ describe("Live TV studio", () => {
       },
     );
     renderLiveTV("/livetv/guide-data");
-    fireEvent.click(await screen.findByRole("button", { name: /Auto-match/ }, WAIT));
+    const autoMatch = await screen.findByRole("button", { name: /Auto-match/ }, WAIT);
+    await waitFor(() => expect(autoMatch).toBeEnabled());
+    fireEvent.click(autoMatch);
     const uncertain = await screen.findByLabelText("Accept match for News 24", {}, WAIT);
     expect(uncertain).not.toBeChecked();
     expect(screen.getByText("Check region")).toBeVisible();
@@ -1049,7 +1052,9 @@ it("estimates AI cost before running and applies only reviewed proposals", async
     },
   );
   renderLiveTV("/livetv/guide-data");
-  fireEvent.click(await screen.findByRole("button", { name: "Match with AI" }, WAIT));
+  const matchWithAI = await screen.findByRole("button", { name: "Match with AI" }, WAIT);
+  await waitFor(() => expect(matchWithAI).toBeEnabled());
+  fireEvent.click(matchWithAI);
   expect(await screen.findByText(/Estimated calls: 1/)).toBeVisible();
   expect(calls.filter((c) => c.url.endsWith("/guide/match"))).toHaveLength(1);
   fireEvent.click(screen.getByRole("button", { name: "Find suggestions" }));
