@@ -495,15 +495,70 @@ func syncPlayFrame(ev frontend.PartyEvent) (map[string]any, bool) {
 	switch ev.Type {
 	case "group":
 		return map[string]any{"MessageType": "SyncPlayGroupUpdate", "Data": map[string]any{
-			"GroupId": ev.View.RoomID, "Type": ev.GroupKind, "Data": ev.GroupData,
+			"GroupId": ev.View.RoomID, "Type": ev.GroupKind, "Data": syncGroupData(ev),
 		}}, true
 	case "command":
 		return map[string]any{"MessageType": "SyncPlayCommand", "Data": map[string]any{
 			"GroupId": ev.View.RoomID, "PlaylistItemId": ev.Command.PlaylistItemID,
 			"When": ev.Command.ExecuteAt.UTC().Format(time.RFC3339Nano), "PositionTicks": ev.Command.Position.Nanoseconds() / 100,
-			"Command": ev.Command.Jellyfin, "EmittedAt": ev.Command.IssuedAt.UTC().Format(time.RFC3339Nano),
+			"Command": syncAction(ev.Command.Action), "EmittedAt": ev.Command.IssuedAt.UTC().Format(time.RFC3339Nano),
 		}}, true
 	default:
 		return nil, false
+	}
+}
+
+func syncAction(action string) string {
+	switch action {
+	case "pause":
+		return "Pause"
+	case "seek":
+		return "Seek"
+	case "stop":
+		return "Stop"
+	default:
+		return "Unpause"
+	}
+}
+func syncState(play string) string {
+	switch play {
+	case "waiting":
+		return "Waiting"
+	case "paused":
+		return "Paused"
+	case "playing":
+		return "Playing"
+	default:
+		return "Idle"
+	}
+}
+func syncGroupData(ev frontend.PartyEvent) any {
+	v := ev.View
+	switch ev.GroupKind {
+	case "UserJoined", "UserLeft":
+		value, _ := ids.GUID(ids.User, ev.SubjectViewerID)
+		return value
+	case "GroupJoined":
+		members := make([]any, 0, len(v.Members))
+		for _, m := range v.Members {
+			value, _ := ids.GUID(ids.User, m.ViewerID)
+			members = append(members, value)
+		}
+		return map[string]any{"GroupId": v.RoomID, "GroupName": v.Name, "State": syncState(v.Playback), "Participants": members, "LastUpdatedAt": v.UpdatedAt.UTC().Format(time.RFC3339Nano)}
+	case "PlayQueue":
+		items := make([]any, 0, len(v.Queue))
+		for _, q := range v.Queue {
+			items = append(items, map[string]any{"ItemId": q.ContentID, "PlaylistItemId": q.PlaylistItemID})
+		}
+		return map[string]any{"Reason": ev.Reason, "LastUpdate": v.UpdatedAt.UTC().Format(time.RFC3339Nano), "Playlist": items, "PlayingItemIndex": v.QueueIndex, "StartPositionTicks": v.AnchorPosition.Nanoseconds() / 100, "IsPlaying": v.Playback == "playing", "ShuffleMode": v.Shuffle, "RepeatMode": v.Repeat}
+	case "StateUpdate":
+		reason := ev.Reason
+		switch reason {
+		case "pause", "seek", "stop", "play":
+			reason = syncAction(reason)
+		}
+		return map[string]any{"State": syncState(v.Playback), "Reason": reason}
+	default:
+		return map[string]any{}
 	}
 }

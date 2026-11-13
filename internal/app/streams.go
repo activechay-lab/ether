@@ -156,7 +156,7 @@ func lookupPlaySession(p playSessionFinder, surface string, userID int64, client
 	if p == nil || clientID == "" {
 		return nil
 	}
-	if surface != "" && surface != "plex" {
+	if sessionSurface(surface) != "" {
 		if sess, ok := p.SessionForSurfaceClient(surface, userID, clientID, key); ok {
 			return sess
 		}
@@ -224,4 +224,12 @@ func (a *App) markerDialogue(_ context.Context, _ core.RatingKey, info core.Medi
 		out[i] = markers.DialogueCue{Start: c.Start, End: c.End}
 	}
 	return out, true
+}
+
+// sessionSurface wires the main adapter to its historical session namespace.
+func sessionSurface(surface string) string {
+	if frontendHostPolicy(core.Protocol(surface)).LegacySessionIdentity {
+		return ""
+	} // Main adapter namespace wiring.
+	return surface
 }

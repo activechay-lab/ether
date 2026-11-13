@@ -69,11 +69,12 @@ func (g *Grants) List(ctx context.Context, viewerID int64) ([]GrantInfo, error) 
 
 // LinkPlex records an already verified Plex identity. A provider subject may
 // belong to only one viewer; conflicts never move it between viewers.
-func (l *Local) LinkPlex(ctx context.Context, viewerID, plexID int64, display string) error {
-	if viewerID <= 0 || plexID <= 0 {
+// LinkPlex links an external account subject; it does not select frontend behavior.
+func (l *Local) LinkPlex(ctx context.Context, viewerID, subjectID int64, display string) error {
+	if viewerID <= 0 || subjectID <= 0 {
 		return core.ErrUnauthorized
 	}
-	subject := strconv.FormatInt(plexID, 10)
+	subject := strconv.FormatInt(subjectID, 10)
 	_, err := l.db.ExecContext(ctx, `INSERT INTO identity_links(viewer_id,provider,subject,display,verified_at) SELECT ?,'plex',?,?,? WHERE EXISTS(SELECT 1 FROM auth_users WHERE id=? AND origin<>'dlna_guest') ON CONFLICT(provider,subject) DO NOTHING`, viewerID, subject, display, time.Now().Unix(), viewerID)
 	if err != nil {
 		return err

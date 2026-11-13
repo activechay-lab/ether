@@ -125,7 +125,7 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 				}
 				if i.host.Events != nil {
 					sessionCtx, stopSessions := context.WithCancel(ctx)
-					ch, err := i.host.Events.Subscribe(sessionCtx, frontend.EventScope{Viewer: viewer, Owner: viewer.IsOwner && !viewer.Delegated, Protocol: i.protocol, Capabilities: frontend.PartyCapabilities{GroupEvents: true, SharedControls: true}})
+					ch, err := i.host.Events.Subscribe(sessionCtx, frontend.EventScope{Viewer: viewer, Owner: viewer.IsOwner && !viewer.Delegated, Protocol: i.protocol})
 					if err != nil {
 						stopSessions()
 					} else {

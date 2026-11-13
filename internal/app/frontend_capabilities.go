@@ -51,9 +51,11 @@ func (s surfaceCapabilities) Build(ctx context.Context, req frontend.CapabilityR
 	if len(declared.DVProfiles) == 0 {
 		declared.DVProfiles = append([]int(nil), policy.DolbyVisionProfiles...)
 	}
-	declared.PreserveEmptyVideoCodecs = s.surface == "plex"
+	declared.PreserveEmptyVideoCodecs = s.policy.NativePlaybackCapabilities
 	declared = resolver.ApplyClientRules(cfg.Quality, declared, req.Viewer)
 	declared.ClientIP = ip.String()
+	declared.InferBuffering = s.policy.InferBuffering
+	declared.NoPlaybackTelemetry = !s.policy.PlaybackTelemetry
 	result := frontend.CapabilityResult{Client: declared, Quality: resolver.SelectProfile(cfg.Quality, declared, req.Viewer)}
 	if req.Viewer != nil && !s.policy.NativeClientFamilies {
 		s.app.recordFrontendFamily(ctx, s.surface, declared)

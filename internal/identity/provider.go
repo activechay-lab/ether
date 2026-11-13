@@ -3,7 +3,6 @@ package identity
 import (
 	"context"
 
-	"github.com/braedonsaunders/ether/internal/core"
 )
 
 // Proof carries provider-specific credentials. Providers interpret only the

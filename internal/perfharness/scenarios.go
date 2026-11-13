@@ -1,3 +1,4 @@
+// Named protocol scenarios are reference-client test recipes, not shared runtime dispatch.
 package perfharness
 
 import (

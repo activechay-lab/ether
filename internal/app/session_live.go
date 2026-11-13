@@ -188,10 +188,11 @@ func rewriteSiloLiveURI(raw, sessionPrefix, base string) string {
 
 // liveTVClientCaps supplies frontend delivery requirements to the neutral host.
 func liveTVClientCaps(caps core.ClientCaps) core.ClientCaps {
-	if caps.Protocol == "jellyfin" || caps.Protocol == "emby" {
+	policy := frontendHostPolicy(caps.Protocol)
+	if policy.ProbeLiveInput {
 		caps.ProbeLiveInput = true
 	}
-	if caps.Protocol == "silo" {
+	if policy.BestEffortLiveStart {
 		caps.BestEffortLiveStart = true
 	}
 	caps.ProbeLiveWithoutCodecs = caps.ProbeLiveWithoutCodecs || clientreg.HasQuirk(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: caps.Device, Version: caps.Version}, "probe-hls-without-codecs")

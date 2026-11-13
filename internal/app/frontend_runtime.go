@@ -172,13 +172,6 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 			return nil
 		},
 		ItemID: ids.RatingKeyGUID,
-		JellyfinUser: func(id int64) string {
-			value, err := ids.GUID(ids.User, id)
-			if err != nil {
-				return ""
-			}
-			return value
-		},
 	})
 	repoFile := repoFileURL(sourceRef(updater.Version, updater.Commit, buildRevision()))
 	metadataHTTP := egress.Client(egress.CapMetadata, 20*time.Second)

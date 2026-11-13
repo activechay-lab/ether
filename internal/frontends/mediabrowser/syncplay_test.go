@@ -38,10 +38,9 @@ func TestSyncPlayGroupCommandAndEmbyHasNoRoute(t *testing.T) {
 			}
 			return nil
 		},
-		ItemID:       ids.RatingKeyGUID,
-		JellyfinUser: func(id int64) string { value, _ := ids.GUID(ids.User, id); return value },
-		UseLead:      true,
-		Lead:         time.Second,
+		ItemID:  ids.RatingKeyGUID,
+		UseLead: true,
+		Lead:    time.Second,
 	})
 	jf, err := (Jellyfin{MachineID: "party"}).Mount(context.Background(), frontend.Host{Identity: ident, WatchParty: engine})
 	if err != nil {
