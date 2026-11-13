@@ -339,7 +339,14 @@ func buildCodecArgs(s runSpec) []string {
 	if !pceBounded {
 		args = appendInputHeaders(args, s.commandHeaders())
 	}
-	if s.BigProbe {
+	sub := matroskaSubtitle(s)
+	bitmap := sub != nil && IsImageSubtitle(sub.Codec)
+	if bitmap && sub.Width > 0 && sub.Height > 0 {
+		// PGS packets may be minutes apart. The persisted canvas avoids
+		// scanning for a subtitle packet at every seek.
+		args = append(args, fmt.Sprintf("-canvas_size:%d", sub.Index), fmt.Sprintf("%dx%d", sub.Width, sub.Height))
+	}
+	if s.BigProbe || (bitmap && (sub.Width <= 0 || sub.Height <= 0)) {
 		args = append(args, "-probesize", "50000000", "-analyzeduration", "10000000")
 	} else if !transcodeVideo && !s.LiveInput && s.Decision.Container == ContainerMatroska && s.Info.Video() != nil && s.Info.Video().Width > 0 && s.Info.Video().Height > 0 && s.Info.Video().Codec != "" {
 		// Container headers carry codec extradata. Keep packet analysis short
@@ -387,7 +394,7 @@ func buildCodecArgs(s runSpec) []string {
 	if s.LoopInput {
 		args = append(args, "-t", secs(s.Info.Duration-loopStart))
 	}
-	textSub := matroskaTextSubtitle(s)
+	textSub := matroskaSubtitle(s)
 	if textSub != nil && textSub.External && textSub.ExternalURL != "" {
 		// A sidecar file is a second input. Without the same -ss, its cues
 		// stay on the title's zero while output_ts_offset places the video
@@ -450,6 +457,12 @@ func buildCodecArgs(s runSpec) []string {
 		args = append(args, matroskaSubtitleTrackArgs(textSub)...)
 	default:
 		args = append(args, "-sn")
+	}
+
+	if bitmap {
+		// Sparse bitmap cues must not hold video/audio in the interleaver
+		// for FFmpeg's default ten seconds while waiting for another cue.
+		args = append(args, "-max_interleave_delta", "1000000")
 	}
 
 	// ---- video
@@ -1071,24 +1084,24 @@ func escapeFilterValue(v string) string {
 	return g.Replace(v)
 }
 
-// matroskaTextSubtitle is the selected text track Plex tvOS reads from
+// matroskaSubtitle is the selected track Plex tvOS reads from
 // inside segmented Matroska. Burned and non-Matroska decisions keep the
 // sidecar path. A nil return means the run stays subtitle-free (-sn).
-func matroskaTextSubtitle(s runSpec) *core.StreamInfo {
+func matroskaSubtitle(s runSpec) *core.StreamInfo {
 	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles {
 		return nil
 	}
 	sub := findStream(s.Info, s.Decision.SubtitleStream, "subtitle")
-	if sub == nil || !IsTextSubtitle(sub.Codec) {
+	if sub == nil || (!IsTextSubtitle(sub.Codec) && !IsImageSubtitle(sub.Codec)) {
 		return nil
 	}
-	if sub.External && sub.ExternalURL == "" {
+	if sub.External && (sub.ExternalURL == "" || IsImageSubtitle(sub.Codec)) {
 		return nil
 	}
 	return sub
 }
 
-// matroskaSubtitleTrackArgs describes the one text track the segments
+// matroskaSubtitleTrackArgs describes the one subtitle track the segments
 // carry. It is the track the viewer picked, so it is flagged default:
 // ExoPlayer (Plex for Android and Android TV) picks a text track by its
 // default flag or its language, and the source's flags are the release's,
@@ -1115,11 +1128,11 @@ func (s runSpec) titleClock() bool {
 	return len(inputTimestampArgs(s)) > 0 || s.httpCopyTimestamps()
 }
 
-// matroskaSubtitleCodec copies a codec Matroska already stores as text and
+// matroskaSubtitleCodec copies native Matroska subtitle codecs and
 // rewrites the others to SubRip, which the segment muxer can header.
 func matroskaSubtitleCodec(codec string) string {
 	switch strings.ToLower(codec) {
-	case "subrip", "srt", "ass", "ssa", "webvtt":
+	case "subrip", "srt", "ass", "ssa", "webvtt", "pgs", "hdmv_pgs_subtitle", "vobsub", "dvd_subtitle", "dvbsub", "dvb_subtitle":
 		return "copy"
 	default:
 		return "srt"
