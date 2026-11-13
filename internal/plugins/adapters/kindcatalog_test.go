@@ -29,6 +29,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/extend"
 	_ "github.com/braedonsaunders/ether/internal/favorites"
 	"github.com/braedonsaunders/ether/internal/frontend"
+	"github.com/braedonsaunders/ether/internal/frontends/mediabrowser"
+	"github.com/braedonsaunders/ether/internal/frontends/plex"
 	"github.com/braedonsaunders/ether/internal/libraries"
 	_ "github.com/braedonsaunders/ether/internal/notinterested"
 	"github.com/braedonsaunders/ether/internal/pluginitems"
@@ -206,11 +208,23 @@ func (h *kindTestHarness) experienceFor(t *testing.T, protocol core.Protocol) *e
 			}
 			return nil, core.ErrNotFound
 		},
-		Libraries:       builtins,
-		Visibility:      vis,
-		State:           h.state,
-		Rows:            &experience.RowsService{},
-		Protocol:        protocol,
+		Libraries:  builtins,
+		Visibility: vis,
+		State:      h.state,
+		Rows:       &experience.RowsService{},
+		Protocol:   protocol,
+		LibraryPresentation: func(p core.Presentations, mt core.MediaType) (core.MediaType, string, bool) {
+			if p.AdapterOnly {
+				return "", "", false
+			}
+			if mt == "" {
+				mt = core.TypeMovie
+			}
+			if protocol == "plex" {
+				return plex.ProjectLibrary(p, mt)
+			}
+			return mediabrowser.ProjectLibrary(p, mt)
+		},
 		PluginLibraries: h.catalog,
 		Get:             get,
 		CachedGet: func(ctx context.Context, k core.RatingKey) (*core.Title, error) {

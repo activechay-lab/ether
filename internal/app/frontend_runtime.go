@@ -291,9 +291,9 @@ func newFrontendRuntime(a *App, cfg config.Config) (*frontendRuntime, error) {
 		}
 		var imageGrants frontend.ImageGrants
 		var imageRevision func() uint64
-		{
+		if !frontendHostPolicy(id).ExternalIdentity {
 			imageOptions := identity.ImageGrantOptions{}
-			if id == "jellyfin" || id == "emby" {
+			if frontendHostPolicy(id).PublicContentTags {
 				imageOptions.Token = authhdr.MediaBrowserToken
 				imageOptions.PublicContentTags = true
 			}
