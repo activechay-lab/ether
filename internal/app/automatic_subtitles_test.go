@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"io"
 	"log/slog"
 	"net/http"
@@ -26,7 +27,9 @@ import (
 // This is the composed App/broker/playback/provider flow over checked-in local
 // media and HTTP fakes. It proves live track serving, not a physical client's
 // discovery or automatic selection of a newly introduced track.
-func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
+func TestAutomaticSubtitleBrokerFlow(t *testing.T)        { automaticSubtitleBrokerFlow(t, "jellyfin") }
+func TestAutomaticSubtitlePlexPlaybackStart(t *testing.T) { automaticSubtitleBrokerFlow(t, "plex") }
+func automaticSubtitleBrokerFlow(t *testing.T, protocol core.Protocol) {
 	// A hang guard, not a speed bar: when this is the process's first test to
 	// open a database, New migrates the image every new database copies.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -61,8 +64,6 @@ func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	// Test only: exercise the backend foundation; this does not qualify a client.
-	a.automaticSubtitleClientSupported = func(frontend.SessionAccess) bool { return true }
 	var searches, downloads atomic.Int32
 	var provider *httptest.Server
 	provider = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -102,15 +103,15 @@ func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
 	b := a.frontends.broker
 	device := core.Device{ID: "automatic-device"}
 	caps := core.ClientCaps{ClientID: device.ID, Product: "offline", Containers: []string{"mp4"}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}, SubtitleCodecs: []string{"srt", "mov_text"}}
-	plan, err := b.Plan(ctx, frontend.PlanRequest{Viewer: viewer, Device: device, Protocol: "jellyfin", Item: title.Key, Caps: caps, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: -1, SubtitleStream: -1}}})
+	plan, err := b.Plan(ctx, frontend.PlanRequest{Viewer: viewer, Device: device, Protocol: protocol, Item: title.Key, Caps: caps, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: -1, SubtitleStream: -1}}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	session, err := b.Open(ctx, frontend.OpenRequest{Viewer: viewer, Device: device, Protocol: "jellyfin", PlanID: plan.ID})
+	session, err := b.Open(ctx, frontend.OpenRequest{Viewer: viewer, Device: device, Protocol: protocol, PlanID: plan.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	access := frontend.SessionAccess{Viewer: viewer, Device: device, Protocol: "jellyfin"}
+	access := frontend.SessionAccess{Viewer: viewer, Device: device, Protocol: protocol}
 	path, err := b.StartStream(ctx, access, session.ID, frontend.StreamRequest{Format: frontend.StreamDirect})
 	if err != nil {
 		t.Fatal(err)
@@ -160,6 +161,43 @@ func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
 	if index < 0 {
 		t.Fatal("download absent from live source")
 	}
+	if protocol == "plex" {
+		// A normal Plex metadata read must expose the downloaded sidecar as selected,
+		// using the same server selection state as PUT /library/parts.
+		inst, mounted := a.frontends.registry.Instance("plex")
+		if !mounted {
+			t.Fatal("Plex frontend not mounted")
+		}
+		metadata := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, "/library/metadata/"+title.Key.String()+"?X-Plex-Token=test-owner", nil)
+		req.Header.Set("X-Plex-Client-Identifier", device.ID)
+		inst.Handler().ServeHTTP(metadata, req)
+		var document struct {
+			Streams []struct {
+				Type     int    `xml:"streamType,attr"`
+				Language string `xml:"languageCode,attr"`
+				Selected string `xml:"selected,attr"`
+				Key      string `xml:"key,attr"`
+			} `xml:"Video>Media>Part>Stream"`
+		}
+		if err := xml.Unmarshal(metadata.Body.Bytes(), &document); err != nil {
+			t.Fatal(err)
+		}
+		selected := false
+		for _, stream := range document.Streams {
+			if stream.Type == 3 && stream.Language == "nld" && stream.Selected == "1" && stream.Key != "" {
+				selected = true
+			}
+		}
+		if metadata.Code != http.StatusOK || !selected {
+			t.Fatal("Plex selected sidecar", metadata.Code, metadata.Body.String())
+		}
+		intent, err := sessions.NewSubtitleIntents(a.db).Snapshot(ctx, viewer.ID, title.Key)
+		if err != nil || intent.Manual {
+			t.Fatal("automatic selection became manual", intent, err)
+		}
+
+	}
 	subtitleURL, err := b.SubtitleURL(ctx, access, session.ID, index, "vtt")
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +212,12 @@ func TestAutomaticSubtitleBrokerFlow(t *testing.T) {
 	}
 	if searches.Load() != 1 || downloads.Load() != 1 || encoder.starts() != 0 {
 		t.Fatal("counts", searches.Load(), downloads.Load(), encoder.starts())
+	}
+	if protocol == "plex" {
+		if err = b.Stop(ctx, access, session.ID); err != nil {
+			t.Fatal(err)
+		}
+		return
 	}
 	// Extend the composed lifecycle matrix with authenticated observed selection.
 	intents := sessions.NewSubtitleIntents(a.db)
