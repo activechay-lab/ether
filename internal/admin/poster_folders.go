@@ -38,11 +38,14 @@ func (h *Handler) posterFolders(w http.ResponseWriter, r *http.Request) {
 	}
 	dirs := []string{}
 	count := 0
+	directoryPosters := map[string]int{}
 	for _, entry := range entries {
 		if entry.IsDir() {
 			dirs = append(dirs, entry.Name())
+			directoryPosters[entry.Name()] = 0
 			if st, e := os.Lstat(filepath.Join(path, entry.Name(), "poster.jpg")); e == nil && st.Mode().IsRegular() {
 				count++
+				directoryPosters[entry.Name()] = 1
 			}
 		}
 		if entry.Type().IsRegular() && strings.EqualFold(filepath.Ext(entry.Name()), ".jpg") {
@@ -57,5 +60,5 @@ func (h *Handler) posterFolders(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(dirs)
-	writeJSON(w, 200, map[string]any{"breadcrumbs": crumbs, "path": path, "parent": filepath.Dir(path), "directories": dirs, "posters": count, "limited": len(entries) > 10000})
+	writeJSON(w, 200, map[string]any{"breadcrumbs": crumbs, "path": path, "parent": filepath.Dir(path), "directories": dirs, "directoryPosters": directoryPosters, "posters": count, "limited": len(entries) > 10000})
 }

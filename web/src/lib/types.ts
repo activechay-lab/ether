@@ -233,7 +233,8 @@ export interface DebridProviderStatus {
 }
 
 export interface PosterProviderConfig {
- assetFolder?: string;
+  assetFolder?: string;
+  ownerEnabled?: boolean;
   version?: number;
   accounts?: Record<string, PosterProviderConfig>;
   enabled: boolean;

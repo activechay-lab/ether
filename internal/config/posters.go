@@ -30,15 +30,16 @@ func (p *PosterAccounts) Entries() map[string]*PosterAccount {
 }
 
 type Posters struct {
-	AssetFolder string         `json:"assetFolder,omitempty"`
-	Accounts    PosterAccounts `json:"accounts"`
-	Version     int            `json:"version,omitempty"`
-	Enabled     bool           `json:"enabled"`
-	Source      string         `json:"source"`
-	BaseURL     string         `json:"baseUrl"`
-	APIKey      string         `json:"apiKey"`
-	URLTemplate string         `json:"urlTemplate"`
-	Profile     string         `json:"profile"`
+	OwnerEnabled *bool          `json:"ownerEnabled,omitempty"`
+	AssetFolder  string         `json:"assetFolder,omitempty"`
+	Accounts     PosterAccounts `json:"accounts"`
+	Version      int            `json:"version,omitempty"`
+	Enabled      bool           `json:"enabled"`
+	Source       string         `json:"source"`
+	BaseURL      string         `json:"baseUrl"`
+	APIKey       string         `json:"apiKey"`
+	URLTemplate  string         `json:"urlTemplate"`
+	Profile      string         `json:"profile"`
 }
 
 // Normalize migrates the original single-provider settings without activating unused credentials.

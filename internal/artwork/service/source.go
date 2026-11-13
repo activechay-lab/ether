@@ -19,6 +19,7 @@ import (
 
 // Source has no protocol server or protocol wire model dependencies.
 type Source struct {
+	OwnerEnabled     func() bool
 	OwnerDir         string
 	AssetFolder      func() string
 	Assets           *artwork.LocalAssets
