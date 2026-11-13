@@ -17,6 +17,9 @@ import (
 // so these leaked. The orphan sweep removes a row no playback_resume row names
 // with the same (user_id, rating_key, release_id).
 //
+// Variant probes are a bounded per-title cache and stay while any resume
+// for that viewer/title exists. Indexes still belong to one release.
+//
 // Neither table can say how old a row is (playback_index has no timestamp),
 // so a row is deleted only once two consecutive sweeps, an hour apart, both
 // saw it orphaned. A save racing the sweep, on this node or another one
@@ -104,9 +107,13 @@ func (s *resumeStore) sweepOrphans(ctx context.Context, sessions map[resumeKey]b
 // in primary-key order. The scan reads the table's primary-key index and
 // probes playback_resume by its primary key; neither reads the large JSON.
 func (s *resumeStore) orphanCandidates(ctx context.Context, table string) ([]orphanRow, error) {
+	releaseMatch := " AND r.release_id=t.release_id"
+	if table == "playback_probe" {
+		releaseMatch = ""
+	} // bounded variant facts live as long as this title's resume
 	q := `SELECT t.user_id, t.rating_key, t.release_id FROM ` + table + ` t
 WHERE (t.user_id, t.rating_key, t.release_id) > (?, ?, ?)
-AND NOT EXISTS (SELECT 1 FROM playback_resume r WHERE r.user_id=t.user_id AND r.rating_key=t.rating_key AND r.release_id=t.release_id)
+AND NOT EXISTS (SELECT 1 FROM playback_resume r WHERE r.user_id=t.user_id AND r.rating_key=t.rating_key` + releaseMatch + `)
 ORDER BY t.user_id, t.rating_key, t.release_id LIMIT ?`
 	var (
 		out       []orphanRow
@@ -151,9 +158,15 @@ func (s *resumeStore) deleteOrphan(ctx context.Context, r orphanRow) (int64, err
 	if err := store.LockKey(ctx, store.DialectOf(s.db), tx, fmt.Sprintf("playback:resume:%d:%d", r.user, r.key)); err != nil {
 		return 0, err
 	}
+	releaseMatch := " AND release_id=?"
+	args := []any{r.user, int64(r.key), r.release, r.user, int64(r.key)}
+	if r.table == "playback_probe" {
+		releaseMatch = ""
+	} else {
+		args = append(args, r.release)
+	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM `+r.table+` WHERE user_id=? AND rating_key=? AND release_id=?
-AND NOT EXISTS (SELECT 1 FROM playback_resume WHERE user_id=? AND rating_key=? AND release_id=?)`,
-		r.user, int64(r.key), r.release, r.user, int64(r.key), r.release)
+AND NOT EXISTS (SELECT 1 FROM playback_resume WHERE user_id=? AND rating_key=?`+releaseMatch+`)`, args...)
 	if err != nil {
 		return 0, err
 	}
