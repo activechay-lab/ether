@@ -185,7 +185,7 @@ func (s *Service) ownerHandler(logos channelLogoFetcher) http.Handler {
 		if id := chi.URLParam(r, "id"); id != "" {
 			src.ID = id
 		}
-		pending := src.Kind != "plex" && r.URL.Query().Get("pending") == "1" && src.Playlist == "" && src.PlaylistURL == "" && src.Guide == "" && src.GuideURL == ""
+		pending := !s.sourceGuideFeatures(src).Remote && r.URL.Query().Get("pending") == "1" && src.Playlist == "" && src.PlaylistURL == "" && src.Guide == "" && src.GuideURL == ""
 		ctx := r.Context()
 		if id := r.URL.Query().Get("progress"); id != "" {
 			ctx = withImportProgress(ctx, s.beginImportProgress(id))
@@ -247,7 +247,7 @@ func (s *Service) ownerHandler(logos channelLogoFetcher) http.Handler {
 		ownerResult(w, v, e)
 	})
 	r.Get("/plex-guide/lineups", func(w http.ResponseWriter, r *http.Request) {
-		v, e := s.PlexLineups(r.Context(), r.URL.Query().Get("country"), r.URL.Query().Get("postalCode"))
+		v, e := s.GuideLineups(r.Context(), r.URL.Query().Get("country"), r.URL.Query().Get("postalCode"))
 		ownerResult(w, v, e)
 	})
 	s.guideRoutes(r)
@@ -482,8 +482,8 @@ func (s *Service) ServeXMLTV(w http.ResponseWriter, r *http.Request, u *core.Use
 		if p.Item.Season > 0 && p.Item.Episode > 0 {
 			v.EpisodeNum = append(v.EpisodeNum, xmlEpisodeNum{System: "xmltv_ns", Value: fmt.Sprintf("%d.%d.", p.Item.Season-1, p.Item.Episode-1)})
 		}
-		if strings.HasPrefix(p.Item.GUID, "plex://") {
-			v.EpisodeNum = append(v.EpisodeNum, xmlEpisodeNum{System: "plex", Value: p.Item.GUID})
+		if scheme, _, ok := strings.Cut(p.Item.GUID, "://"); ok && scheme != "" {
+			v.EpisodeNum = append(v.EpisodeNum, xmlEpisodeNum{System: scheme, Value: p.Item.GUID})
 		}
 		if p.Item.Premiere {
 			v.New = &struct{}{}

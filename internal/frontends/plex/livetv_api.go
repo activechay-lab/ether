@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/frontend/kit/clientnet"
 	"github.com/braedonsaunders/ether/internal/frontends/plex/model"
@@ -736,7 +737,7 @@ func (s *Server) handleLiveTune(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := c.ID
-	info, err := s.svc().liveTV.TuneWithSession(r.Context(), pr.User, id, s.clientCaps(pr), pr.SessionID)
+	info, err := s.svc().liveTV.TuneWithSession(r.Context(), pr.User, id, liveTuneCaps(s.clientCaps(pr)), pr.SessionID)
 	if err != nil {
 		s.log.Warn("live tune response failed", append([]any{"channel", id, "client", pr.ClientID, "product", pr.Product}, frontend.DiagnoseLiveTV("tune", err).LogAttrs...)...)
 		s.writeLiveTuneError(w, r, err)
@@ -1050,4 +1051,9 @@ func (s *Server) handleLiveOperationStop(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	s.writeEmpty(w, r)
+}
+
+func liveTuneCaps(caps frontend.ClientCaps) frontend.ClientCaps {
+	caps.ProbeLiveWithoutCodecs = caps.ProbeLiveWithoutCodecs || clientreg.HasQuirk(clientreg.Identity{Product: caps.Product, Platform: caps.Platform, Device: caps.Device, Version: caps.Version}, "probe-hls-without-codecs")
+	return caps
 }

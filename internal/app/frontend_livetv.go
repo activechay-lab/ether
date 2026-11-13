@@ -345,7 +345,7 @@ func (s surfaceLiveTV) TuneWithSession(ctx context.Context, u *frontend.User, id
 	if h == nil {
 		return frontend.LiveTVSessionInfo{}, core.ErrNotAvailable
 	}
-	return h.TuneWithSession(ctx, u, id, caps, sessionID)
+	return h.TuneWithSession(ctx, u, id, liveTVClientCaps(caps), sessionID)
 }
 func (s surfaceLiveTV) Sessions(ctx context.Context, u *frontend.User) []frontend.LiveTVSessionInfo {
 	if h := s.host(); h != nil {

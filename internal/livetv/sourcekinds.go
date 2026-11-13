@@ -202,7 +202,7 @@ func (s *Service) SourceKindOf(src Source) string {
 }
 
 func builtinSourceKinds() []SourceKind {
-	return []SourceKind{plexGuideKind{}, xtreamKind{}, guideOnlyKind{}, m3uKind{}, virtualKind{}}
+	return []SourceKind{providerGuideKind{}, xtreamKind{}, guideOnlyKind{}, m3uKind{}, virtualKind{}}
 }
 
 func authParams() []extend.ParamField {
@@ -388,4 +388,26 @@ func fetchSourceGuide(ctx context.Context, s *Service, src *Source, cs []Channel
 		s.o.Logger.Info("Live TV source read", "sourceId", src.ID, "source", src.Name, "step", "guide", "guideChannels", len(g.Channels), "nameCandidates", nameCandidateCount, "lateChannels", g.LateChannels, "programmes", len(g.Programmes))
 	}
 	return g, nil
+}
+
+// GuideFeatures describes upstream behavior without identifying a frontend.
+type GuideFeatures struct{ Remote, ReviewedAliases bool }
+type guideFeatureSource interface{ GuideFeatures() GuideFeatures }
+
+func (providerGuideKind) GuideFeatures() GuideFeatures {
+	return GuideFeatures{Remote: true, ReviewedAliases: true}
+}
+func (s *Service) sourceGuideFeatures(src Source) GuideFeatures {
+	k, ok := s.kindRegistry().Classify(src)
+	if ok {
+		if p, ok := k.(guideFeatureSource); ok {
+			return p.GuideFeatures()
+		}
+	}
+	return GuideFeatures{}
+}
+
+func defaultGuideFeatures(src Source) GuideFeatures {
+	s := &Service{}
+	return s.sourceGuideFeatures(src)
 }

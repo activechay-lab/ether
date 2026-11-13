@@ -9,6 +9,8 @@ import (
 	"github.com/braedonsaunders/ether/internal/admin"
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/egress"
+	"github.com/braedonsaunders/ether/internal/frontends/plex/guide"
 	"github.com/braedonsaunders/ether/internal/livetv"
 	"github.com/braedonsaunders/ether/internal/markers"
 	"github.com/braedonsaunders/ether/internal/playback"
@@ -56,7 +58,7 @@ func (a *App) buildLiveTV() error {
 		return markers.BreakScanPolicy{DailyBytes: c.BreakScanDailyBytes, ReleaseBytes: c.BreakScanReleaseBytes, LargeReleaseBytes: c.BreakScanLargeReleaseBytes, AllowLarge: c.BreakScanAllowLarge}
 	}}, GuideAI: a.llm, Reels: a.onairReelSnapshot, Graphics: a.onair, InputUser: a.liveTVInputUser, StyleScreens: a.onair.StyleScreens, AudioTrack: a.liveTVAudioTrack, PersonalChanged: func(viewer int64) {
 		a.frontends.notifyLiveLineup(viewer)
-	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), PlexGuideToken: func() string { return a.cfg.Read().Plex.Token }, Now: parityClock(), Showcase: parityShowcase(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, CheckAvailability: func(ctx context.Context, key core.RatingKey) (bool, bool) {
+	}, Picker: a.personalize, Watchlist: a.watchlist, State: a.state, Users: a.users, Logger: a.log.With("component", "livetv"), GuideProvider: &guide.Client{DB: a.db, HTTPClient: egress.Client(egress.CapDirect, 20*time.Second), Token: func() string { return a.cfg.Read().Plex.Token }}, Now: parityClock(), Showcase: parityShowcase(), DB: a.db, Sealer: a.cfg, Catalog: a.catalog, Collections: a.collections, Playback: a.playback, Transcoder: tc, Availability: avail, CheckAvailability: func(ctx context.Context, key core.RatingKey) (bool, bool) {
 		if a.resolver == nil {
 			return false, false
 		}
