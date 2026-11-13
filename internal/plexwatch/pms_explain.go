@@ -26,12 +26,14 @@ const (
 // one movie or show. It is bounded work: the requested title's rows only, never
 // a catalogue scan and never a network call.
 type StepAsideExplanation struct {
-	Key     int64    `json:"key"`
-	Kind    string   `json:"kind"`
-	Title   string   `json:"title"`
-	Hidden  bool     `json:"hidden"`
-	Cause   string   `json:"cause"`
-	Servers []string `json:"servers"`
+	Year         int      `json:"year"`
+	IdentityRule string   `json:"identityRule"`
+	Key          int64    `json:"key"`
+	Kind         string   `json:"kind"`
+	Title        string   `json:"title"`
+	Hidden       bool     `json:"hidden"`
+	Cause        string   `json:"cause"`
+	Servers      []string `json:"servers"`
 	// Show fields, populated for shows.
 	AiredRegular int      `json:"airedRegular"`
 	HeldEpisodes int      `json:"heldEpisodes"`
@@ -62,6 +64,12 @@ func (s *Servers) ExplainStepAside(ctx context.Context, key core.RatingKey) (Ste
 		return out, nil
 	}
 	out.ScanState = worstScanState(servers)
+	out.IdentityRule = "external_id_and_year_within_one"
+	if stored, ok := s.catalog.(storedTitleCatalog); ok {
+		if title, err := stored.StoredTitle(ctx, key); err == nil && title != nil {
+			out.Year = title.Year
+		}
+	}
 
 	switch key.Kind() {
 	case core.KindMovie:

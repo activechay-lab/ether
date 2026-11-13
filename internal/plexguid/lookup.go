@@ -210,7 +210,7 @@ func (s *Service) VerifiedRange(ctx context.Context, after, below core.RatingKey
 		// enqueue it for priority repair like the other read paths. (Credit-
 		// unchecked rows are queued below; a per-row namesake check here would
 		// make the range scale with the library.)
-		if !c.hasIdentity && s.hasNamesake(ctx, c.key) {
+		if !c.hasIdentity || c.staleCredits {
 			s.enqueuePriority(c.key)
 			continue
 		}
