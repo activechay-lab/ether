@@ -767,9 +767,10 @@ func (fs *appFrontendService) Frontends(ctx context.Context) ([]builtin.Frontend
 	}
 	cfg := fs.a.cfg.Get()
 	var out []builtin.FrontendInfo
+	// Wire the built-in frontend identities for the agent app list.
 	for _, id := range []string{"plex", "jellyfin", "emby", "stremio", "dlna", "webdav", "m3u"} {
 		enabled := cfg.Frontends[id].Enabled
-		if cfg.Frontends == nil && id == "plex" {
+		if cfg.Frontends == nil && frontendHostPolicy(frontend.Protocol(id)).MainListener {
 			enabled = true
 		}
 		out = append(out, builtin.FrontendInfo{ID: id, Name: id, Enabled: enabled})
@@ -784,8 +785,8 @@ func (fs *appFrontendService) SetFrontendEnabled(ctx context.Context, id string,
 	return fs.a.cfg.Update(func(c *config.Config) error {
 		if c.Frontends == nil {
 			c.Frontends = map[string]config.Frontend{}
-			if id != "plex" {
-				c.Frontends["plex"] = config.Frontend{Enabled: true}
+			if !frontendHostPolicy(frontend.Protocol(id)).MainListener {
+				c.Frontends["plex"] = config.Frontend{Enabled: true} // Preserve the default main-listener registration.
 			}
 		}
 		v := c.Frontends[id]

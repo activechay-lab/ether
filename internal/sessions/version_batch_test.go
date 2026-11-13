@@ -18,7 +18,7 @@ func TestVersionHandleBatchValidatesOnceAndIsAtomic(t *testing.T) {
 	bus := NewEventBus(nil, active)
 	defer bus.Close()
 	lookups, variants := 0, 0
-	b, err := NewBroker(BrokerDeps{Events: bus, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: bus, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		lookups++
 		return &core.Title{Key: k}, nil
 	}, Variants: func(context.Context, *core.Viewer, *core.Title, core.ClientCaps) ([]core.ReleaseVariant, error) {

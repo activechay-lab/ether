@@ -48,7 +48,7 @@ func TestSupportsUnauthoredBoundedCopy(t *testing.T) {
 	caps.Keyframes, caps.CopyTimeline, caps.AuthoredRamp = true, true, true
 	raw := copyRecoveryRequest()
 	raw.SessionID, raw.SegmentDuration, raw.Ramp = "copy-session", 0, core.HLSRamp{}
-	if !(&Runtime{o: Options{RemoteCapabilities: caps}}).Supports(raw) {
+	if !(&Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), RemoteCapabilities: caps}}).Supports(raw) {
 		t.Fatal("unauthored bounded copy rejected")
 	}
 	if raw.SegmentDuration != 0 || raw.Ramp != (core.HLSRamp{}) {
@@ -56,12 +56,12 @@ func TestSupportsUnauthoredBoundedCopy(t *testing.T) {
 	}
 	noCopy := caps
 	noCopy.CopyTimeline = false
-	if (&Runtime{o: Options{RemoteCapabilities: noCopy}}).Supports(raw) {
+	if (&Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), RemoteCapabilities: noCopy}}).Supports(raw) {
 		t.Fatal("bounded copy admitted without worker copy timeline support")
 	}
 	other := raw
 	other.SegmentDuration = 4 * time.Second
-	if (&Runtime{o: Options{RemoteCapabilities: caps}}).Supports(other) {
+	if (&Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), RemoteCapabilities: caps}}).Supports(other) {
 		t.Fatal("copy timeline facts admitted on a different segment grid")
 	}
 }

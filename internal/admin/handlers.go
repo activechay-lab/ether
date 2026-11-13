@@ -72,7 +72,7 @@ func SetupStatus(cfg config.Config) (steps []SetupStep, complete bool) {
 	cacheDone := strings.TrimSpace(cfg.Cache.Dir) != "" && cfg.Cache.BudgetBytes >= 0
 	sourcesDone := enabledProviders+enabledDebrid+keylessSources > 0
 	steps = []SetupStep{
-		{ID: "plex", Title: "Sign in to plex.tv and claim", Complete: plexDone, Required: true, Detail: plexDetail},
+		{ID: accountSetupID, Title: "Sign in to plex.tv and claim", Complete: plexDone, Required: true, Detail: plexDetail},
 		{ID: "sources", Title: "Debrid accounts or Usenet providers", Complete: sourcesDone, Required: true,
 			Detail: fmt.Sprintf("%d debrid, %d Usenet, %d addon", enabledDebrid, enabledProviders, keylessSources)},
 		{ID: "indexers", Title: "Indexers", Complete: enabledIndexers > 0, Required: true,
@@ -95,12 +95,13 @@ func (h *Handler) setupStatus(r *http.Request) ([]SetupStep, bool) {
 	cfg := h.deps.Config.Get()
 	steps, complete := SetupStatus(cfg)
 	local := h.deps.LocalOwnerConfigured != nil && h.deps.LocalOwnerConfigured(r.Context())
-	plexOff := cfg.Frontends != nil && !cfg.Frontends["plex"].Enabled
+	// Account setup is wired to the main listener frontend.
+	accountOff := cfg.Frontends != nil && !cfg.Frontends[accountSetupID].Enabled
 	for i := range steps {
-		if steps[i].ID != "plex" {
+		if steps[i].ID != accountSetupID {
 			continue
 		}
-		if plexOff {
+		if accountOff {
 			steps[i].Title = "Create local owner"
 			steps[i].Complete = local
 			if local {
@@ -159,7 +160,7 @@ func (h *Handler) handleSetupComplete(w http.ResponseWriter, r *http.Request) {
 	// Never even when forced: after setup only the server's Plex owner can
 	// open the admin UI, so finishing unclaimed would lock everyone out.
 	for _, s := range steps {
-		if s.ID == "plex" && !s.Complete {
+		if s.ID == accountSetupID && !s.Complete {
 			writeError(w, http.StatusConflict, "plex_required",
 				"create a local owner or claim Plex before completing setup")
 			return

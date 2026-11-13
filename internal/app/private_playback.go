@@ -29,7 +29,7 @@ func (a *App) buildClusterPlayback(ctx context.Context, _ config.Config) error {
 		return err
 	}
 	self := a.cluster.Self()
-	o := clusterplayback.Options{ProtocolSealer: a.cfg, ClockReady: a.privateClockReady, Bus: a.clusterNode(), DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
+	o := clusterplayback.Options{SurfacePolicy: sessionPolicy, Delivery: deliveryPolicy(), ProtocolSealer: a.cfg, ClockReady: a.privateClockReady, Bus: a.clusterNode(), DB: a.db, Guard: p.guard, Self: nodewire.Identity{Cluster: a.cfg.Get().Server.MachineIdentifier, NodeID: self.ID, Boot: self.Incarnation}, Roles: p.settings.Roles, Placement: ledger, Endpoint: a.privateEndpoint, MemberRole: a.privateMemberRole, Eligible: a.privateEligible, Capacity: p.settings.Capacity, ClockSkew: time.Duration(p.settings.ClockSkewMillis) * time.Millisecond, ClockBoundKnown: p.settings.ClockBoundKnown}
 	o.AuthorRamp = func(q core.HLSRequest) core.HLSRequest {
 		return transcode.AuthorDistributedRamp(q, a.cfg.Get().Transcode)
 	}

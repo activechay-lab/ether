@@ -22,7 +22,7 @@ func TestScopedSubtitleExtractionAndSidecars(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events,
 		OpenSubtitle: func(id, format string) (io.ReadCloser, string, error) {
@@ -119,7 +119,7 @@ func TestExternalSubtitleServesStoredTimingAndManualShift(t *testing.T) {
 	defer events.Close()
 	sidecar := "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello there friend\n\n00:00:03.000 --> 00:00:04.000\nSecond matching line\n\n00:00:05.000 --> 00:00:06.000\nThird matching line\n"
 	reference := "WEBVTT\n\n00:00:03.000 --> 00:00:04.000\nHello there friend\n\n00:00:05.000 --> 00:00:06.000\nSecond matching line\n\n00:00:07.000 --> 00:00:08.000\nThird matching line\n"
-	b, err := NewBroker(BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: p, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events,
 		OpenSubtitle: func(id, format string) (io.ReadCloser, string, error) {
@@ -282,7 +282,7 @@ func TestSessionSubtitleArtifactsHLSAndAuthoredFidelity(t *testing.T) {
 	events := NewEventBus(nil, active)
 	defer events.Close()
 
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 			return &core.Title{Key: k}, nil
 		},

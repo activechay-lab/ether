@@ -51,7 +51,7 @@ func lifecycleOf(u ViewerRecord) viewerLifecycle {
 	default:
 		lc.Source = "local"
 	}
-	if lc.Source == "plex" || lc.Source == "plexHome" {
+	if !u.IsOwner && u.Origin != "dlna_guest" && hasPlex {
 		lc.PlexShared = u.PlexShared
 		lc.ManagedBy = "plex"
 		return lc
@@ -101,14 +101,15 @@ func lifecycleID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 // refuseLifecycle answers for viewers Ether must not pause, remove or
 // merge: the owner (403) and Plex viewers managed on plex.tv (409).
 func refuseLifecycle(w http.ResponseWriter, u *ViewerRecord) bool {
-	switch lifecycleOf(*u).Source {
-	case "owner":
+	if u.IsOwner {
 		writeError(w, http.StatusForbidden, "owner", "You can't change your own account this way.")
 		return true
-	case "plex", "plexHome":
+	}
+	if !lifecycleOf(*u).CanPause {
 		writeError(w, http.StatusConflict, "plex_managed", "This viewer is managed on plex.tv. Change their access there.")
 		return true
 	}
+
 	return false
 }
 

@@ -20,6 +20,7 @@ func init() {
 }
 
 type surfaceCapabilities struct {
+	policy  core.FrontendHostPolicy
 	app     *App
 	surface frontend.Protocol
 }
@@ -38,10 +39,9 @@ func (s surfaceCapabilities) Build(ctx context.Context, req frontend.CapabilityR
 	}
 	cfg := s.app.cfg.Read()
 	overrides := cfg.Clients.Overrides
-	// Plex applies this baseline in its own cap builder. A Jellyfin or Emby
-	// client that sent no codec lists gets the same floor. A sent DeviceProfile
-	// already filled those lists, and that declaration wins.
-	if s.surface != "plex" {
+	// Frontends with their own capability builder already apply this baseline.
+	// Otherwise fill only missing codec lists; an explicit declaration wins.
+	if !s.policy.NativePlaybackCapabilities {
 		declared = playbackFloor(declared, overrides)
 	}
 	policy := transcode.ResolvePolicy(declared, overrides)
@@ -51,10 +51,11 @@ func (s surfaceCapabilities) Build(ctx context.Context, req frontend.CapabilityR
 	if len(declared.DVProfiles) == 0 {
 		declared.DVProfiles = append([]int(nil), policy.DolbyVisionProfiles...)
 	}
+	declared.PreserveEmptyVideoCodecs = s.surface == "plex"
 	declared = resolver.ApplyClientRules(cfg.Quality, declared, req.Viewer)
 	declared.ClientIP = ip.String()
 	result := frontend.CapabilityResult{Client: declared, Quality: resolver.SelectProfile(cfg.Quality, declared, req.Viewer)}
-	if req.Viewer != nil && s.surface != "plex" {
+	if req.Viewer != nil && !s.policy.NativeClientFamilies {
 		s.app.recordFrontendFamily(ctx, s.surface, declared)
 	}
 	return result, nil
@@ -75,7 +76,7 @@ func (a *App) recordFrontendFamily(ctx context.Context, surface frontend.Protoco
 		return
 	}
 	policy := transcode.ClientPolicyFor(core.ClientCaps{Protocol: surface, Product: product, Platform: caps.Platform, Device: device})
-	if policy.Family == "generic" || (policy.Family == "Plex Web" && surface != "plex") {
+	if policy.Family == "generic" || policy.Family == "Plex Web" {
 		policy.Family = product
 	}
 	data, err := json.Marshal(policy)

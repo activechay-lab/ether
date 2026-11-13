@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/braedonsaunders/ether/internal/clientreg"
 	"github.com/braedonsaunders/ether/internal/core"
 	"github.com/braedonsaunders/ether/internal/streamgrant"
 )
@@ -724,8 +723,8 @@ func (s *Service) startIPTVSource(ctx context.Context, ss *session) error {
 	}
 	c := ss.info.Channel
 	c.StreamURL = ss.inputURL
-	analyze := len(ss.caps.VideoCodecs) > 0 || len(ss.caps.AudioCodecs) > 0 || clientreg.HasQuirk(clientreg.Identity{Product: ss.caps.Product, Platform: ss.caps.Platform, Device: ss.caps.Device, Version: ss.caps.Version}, "probe-hls-without-codecs")
-	probe := analyze || c.Transcode || ss.caps.Protocol == "jellyfin" || ss.caps.Protocol == "emby"
+	analyze := len(ss.caps.VideoCodecs) > 0 || len(ss.caps.AudioCodecs) > 0 || ss.caps.ProbeLiveWithoutCodecs
+	probe := analyze || c.Transcode || ss.caps.ProbeLiveInput
 	// Codec analysis overlaps the playlist prefix read. The first tune of a
 	// channel still waits on the probe; a retune inside liveProbeTTL does not.
 	probeCh, probeCancel := s.startEarlyProbe(ctx, ss, probe)
@@ -744,15 +743,15 @@ func (s *Service) startIPTVSource(ctx context.Context, ss *session) error {
 		if s.transcoder() != nil && probe {
 			probeWaitCtx := ctx
 			var waitCancel context.CancelFunc
-			if ss.caps.Protocol == "silo" {
-				// Silo playback/start has a < 1s budget. Wait briefly for a
+			if ss.caps.BestEffortLiveStart {
+				// This caller has a < 1s startup budget. Wait briefly for a
 				// cached or fast probe, then proceed with HLS passthrough if
 				// live ffprobe is still sampling segments.
 				probeWaitCtx, waitCancel = context.WithTimeout(ctx, 350*time.Millisecond)
 				defer waitCancel()
 			}
 			info, err = s.takeEarlyProbe(probeWaitCtx, ss, probeCh)
-			if analyze && ss.caps.Protocol != "silo" {
+			if analyze && !ss.caps.BestEffortLiveStart {
 				if err != nil {
 					return Diagnose("probe", err)
 				}
@@ -842,7 +841,7 @@ func (s *Service) awaitOwnedStart(ctx context.Context, ss *session) error {
 		return nil
 	}
 	wait := ctx
-	if ss.caps.Protocol == "silo" {
+	if ss.caps.BestEffortLiveStart {
 		var cancel context.CancelFunc
 		wait, cancel = context.WithTimeout(ctx, 700*time.Millisecond)
 		defer cancel()
@@ -854,7 +853,7 @@ func (s *Service) awaitOwnedStart(ctx context.Context, ss *session) error {
 		}
 	}
 	if err != nil && wait.Err() != nil && ctx.Err() == nil {
-		return nil // Silo: the playlist request waits for the rest
+		return nil // The playlist request waits for the rest
 	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		// The tune budget passed without one segment from the source.

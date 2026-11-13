@@ -9,69 +9,9 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/braedonsaunders/ether/internal/frontends/plex/guide"
 )
-
-// The budget and backoff protect a shared provider, including when the
-// provider fails. These checks intentionally exercise the real HTTP client.
-func TestPlexGuideRequestBudgetAndBackoff(t *testing.T) {
-	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests.Add(1)
-		if r.Header.Get("X-Plex-Token") != "test-token" {
-			t.Error("missing server token")
-		}
-		if r.URL.Path == "/rate" {
-			w.Header().Set("Retry-After", "30")
-			w.WriteHeader(429)
-			return
-		}
-		fmt.Fprint(w, `{"MediaContainer":{"Lineup":[{"id":"a","title":"A (2 channels)","type":"ota"}]}}`)
-	}))
-	defer server.Close()
-	s := &Service{o: Options{HTTPClient: server.Client(), PlexGuideURL: server.URL, PlexGuideToken: func() string { return "test-token" }}}
-	budget := 1
-	if _, err := s.plexGuideRequest(context.Background(), "/ok", nil, &budget); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.plexGuideRequest(context.Background(), "/ok", nil, &budget); err == nil || requests.Load() != 1 {
-		t.Fatal("budget did not prevent request")
-	}
-	s.plexGate.next = time.Time{}
-	if _, err := s.plexGuideRequest(context.Background(), "/rate", nil, nil); err == nil || !strings.Contains(err.Error(), "rate-limited") || strings.Contains(err.Error(), "test-token") {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if time.Until(s.plexGate.next) < 29*time.Second {
-		t.Fatal("Retry-After was not honoured")
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
-	if _, err := s.plexGuideRequest(ctx, "/ok", nil, nil); err == nil || requests.Load() != 2 {
-		t.Fatal("backoff did not prevent request")
-	}
-}
-
-func TestPlexGuideGridMapping(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/grid" || r.URL.Query().Get("channelGridKey") != "key" || r.URL.Query().Get("type") != "1,4" || r.URL.Query().Get("date") != "2026-10-19" {
-			t.Errorf("unexpected request: %s", r.URL.String())
-		}
-		fmt.Fprint(w, `{"MediaContainer":{"Metadata":[{"type":"episode","title":"Episode","grandparentTitle":"Show","summary":"Summary","guid":"plex://episode/example","grandparentGuid":"plex://show/example","parentIndex":2,"index":3,"originallyAvailableAt":"2026-10-18","grandparentThumb":"https://example.invalid/art","Genre":[{"tag":"Drama"}],"Media":[{"beginsAt":1792411200,"endsAt":1792414800,"premiere":true,"live":true}]}]}}`)
-	}))
-	defer server.Close()
-	s := &Service{o: Options{HTTPClient: server.Client(), PlexGuideURL: server.URL}}
-	budget := 1
-	ps, err := s.plexGrid(context.Background(), "key", guideTestNow, &budget)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ps) != 1 {
-		t.Fatalf("got %d programmes", len(ps))
-	}
-	p := ps[0]
-	if p.ChannelID != "key" || p.Item.Title != "Show" || p.Item.EpisodeTitle != "Episode" || p.Item.Season != 2 || p.Item.Episode != 3 || !p.Item.Premiere || !p.Item.Live || p.Item.GUID != "plex://episode/example" || p.Item.ShowGUID != "plex://show/example" || len(p.Item.Genres) != 1 || p.Item.ReleasedMS == 0 {
-		t.Fatalf("bad mapping: %+v", p)
-	}
-}
 
 func TestPlexGuideMappedRefreshAndReviewedAliases(t *testing.T) {
 	var grids atomic.Int32
@@ -92,7 +32,7 @@ func TestPlexGuideMappedRefreshAndReviewedAliases(t *testing.T) {
 	}))
 	defer server.Close()
 	ctx := context.Background()
-	s := testService(t, Options{Now: func() time.Time { return guideTestNow }, HTTPClient: server.Client(), PlexGuideURL: server.URL})
+	s := testService(t, Options{Now: func() time.Time { return guideTestNow }, HTTPClient: server.Client(), GuideProvider: &guide.Client{HTTPClient: server.Client(), URL: server.URL}})
 	_, err := s.ImportSource(ctx, Source{ID: "guide", Name: "Guide", Kind: "plex", LineupID: "lineup"})
 	if err != nil {
 		t.Fatal(err)
@@ -138,12 +78,13 @@ func TestPlexGuideRateLimitSharedBetweenServices(t *testing.T) {
 		w.WriteHeader(429)
 	}))
 	defer server.Close()
-	s := testService(t, Options{HTTPClient: server.Client(), PlexGuideURL: server.URL})
-	if _, err := s.plexGuideRequest(context.Background(), "/grid", nil, nil); err == nil {
+	s := testService(t, Options{HTTPClient: server.Client(), GuideProvider: &guide.Client{HTTPClient: server.Client(), URL: server.URL}})
+	s.o.GuideProvider.(*guide.Client).DB = s.o.DB
+	if _, err := s.o.GuideProvider.Grid(context.Background(), "one", guideTestNow, nil); err == nil {
 		t.Fatal("expected rate limit")
 	}
-	other := &Service{o: Options{DB: s.o.DB, HTTPClient: server.Client(), PlexGuideURL: server.URL}}
-	if _, err := other.plexGuideRequest(context.Background(), "/grid", nil, nil); err == nil || !strings.Contains(err.Error(), "rate-limited") {
+	other := &guide.Client{DB: s.o.DB, HTTPClient: server.Client(), URL: server.URL}
+	if _, err := other.Grid(context.Background(), "one", guideTestNow, nil); err == nil || !strings.Contains(err.Error(), "rate-limited") {
 		t.Fatalf("shared status: %v", err)
 	}
 	if requests.Load() != 1 {
@@ -166,11 +107,11 @@ func TestPlexGuideOverlappingDatesAndAirings(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	s := &Service{o: Options{HTTPClient: server.Client(), PlexGuideURL: server.URL}}
+	s := &Service{o: Options{HTTPClient: server.Client(), GuideProvider: &guide.Client{HTTPClient: server.Client(), URL: server.URL}}}
 	now := time.Date(2026, 11, 4, 20, 0, 0, 0, time.UTC)
-	dates := plexGridDates(now, now, now.Add(12*time.Hour))
+	dates := guideGridDates(now, now, now.Add(12*time.Hour))
 	budget := len(dates)
-	got, err := s.plexGrids(context.Background(), "one", dates, &budget)
+	got, err := s.guideGrids(context.Background(), "one", dates, &budget)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +128,7 @@ func TestPlexGuideOverlappingDatesAndAirings(t *testing.T) {
 	}
 	local := time.FixedZone("western", -8*60*60)
 	boundary := time.Date(2026, 11, 5, 1, 0, 0, 0, time.UTC).In(local)
-	dates = plexGridDates(boundary, boundary, boundary.Add(12*time.Hour))
+	dates = guideGridDates(boundary, boundary, boundary.Add(12*time.Hour))
 	if len(dates) != 3 || dates[0].Format("2006-01-02") != "2026-11-04" || dates[2].Format("2006-01-02") != "2026-11-06" {
 		t.Fatalf("local boundary dates: %v", dates)
 	}

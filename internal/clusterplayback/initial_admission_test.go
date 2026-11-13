@@ -72,7 +72,7 @@ func TestDurableAdmissionAcrossCoordinatorRestart(t *testing.T) {
 	guards := fixtureGuards(t, controller, worker, replacement)
 	endpoints := map[nodewire.Identity]string{}
 	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
-	front, err := NewRuntime(Options{DB: db, Placement: ledger, Self: controller, Guard: guards[0], Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond,
+	front, err := NewRuntime(Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Self: controller, Guard: guards[0], Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond,
 		Eligible: eligible, MemberRole: eligible, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) {
 			if ep := endpoints[id]; ep != "" {
 				return ep, nil
@@ -428,7 +428,7 @@ func TestOperationGateDurableInvariant(t *testing.T) {
 	makeRuntime := func(id nodewire.Identity, guard *nodewire.Guard) *Runtime {
 		t.Helper()
 		allow := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
-		r, e := NewRuntime(Options{DB: db, Placement: ledger, Self: id, Guard: guard, Capacity: 1, HistoryCapacity: 16, ClockBoundKnown: true, Eligible: allow, MemberRole: allow, Endpoint: func(context.Context, nodewire.Identity) (string, error) { return "", ErrDenied }})
+		r, e := NewRuntime(Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Self: id, Guard: guard, Capacity: 1, HistoryCapacity: 16, ClockBoundKnown: true, Eligible: allow, MemberRole: allow, Endpoint: func(context.Context, nodewire.Identity) (string, error) { return "", ErrDenied }})
 		if e != nil {
 			t.Fatal(e)
 		}

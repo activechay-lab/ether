@@ -61,7 +61,7 @@ func TestBorrowedTrickplayRevalidatesBeforeTiles(t *testing.T) {
 	now := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	play := &core.PlaySession{ID: "play", Resolution: &core.Resolution{Release: core.Release{ID: "rel-1"}}, Info: core.MediaInfo{Duration: 15 * time.Second}}
 	b := &Broker{
-		deps: BrokerDeps{
+		deps: BrokerDeps{SurfacePolicy: testSessionPolicy,
 			Trickplay: provider,
 			Playback:  &fakePlayback{sessions: map[string]*core.PlaySession{"play": play}},
 			ActiveViewer: func(context.Context, int64) (*core.Viewer, error) {
@@ -131,7 +131,7 @@ func TestBrokerDoesNotCancelSharedTrickplay(t *testing.T) {
 	now := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
 	play := &core.PlaySession{ID: "play", Resolution: &core.Resolution{Release: core.Release{ID: "rel-1"}}, Info: core.MediaInfo{Duration: 15 * time.Second}}
 	b := &Broker{
-		deps: BrokerDeps{
+		deps: BrokerDeps{SurfacePolicy: testSessionPolicy,
 			Trickplay: provider,
 			Playback:  &fakePlayback{sessions: map[string]*core.PlaySession{"play": play, "plex": {ID: "plex", Resolution: &core.Resolution{Release: core.Release{ID: "rel-1"}}}}},
 			ActiveViewer: func(context.Context, int64) (*core.Viewer, error) {
@@ -167,7 +167,7 @@ func TestBrokerTrickplayLeasesReleaseAndFenceLateEnsure(t *testing.T) {
 	active := func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 7}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Playback: play, Trickplay: provider, ActiveViewer: active, Events: events, Progress: &fakeProgress{}, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(context.Context, *core.Viewer, core.Device, core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: play, Trickplay: provider, ActiveViewer: active, Events: events, Progress: &fakeProgress{}, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(context.Context, *core.Viewer, core.Device, core.RatingKey) (*core.Title, error) {
 		return &core.Title{}, nil
 	}})
 	if err != nil {
@@ -227,7 +227,7 @@ func TestTrickplayBlockedRevisionDoesNotBlockStop(t *testing.T) {
 	events := NewEventBus(nil, func(context.Context, int64) (*core.Viewer, error) { return &core.Viewer{ID: 7}, nil })
 	defer events.Close()
 	s := &brokerSession{public: frontend.Session{ID: "s", ViewerID: 7}, playID: "play", sourcePinned: true, sourceETag: "expected"}
-	b := &Broker{deps: BrokerDeps{Trickplay: owner.Borrow(), Playback: play, Now: time.Now, Events: events}, sessions: map[string]*brokerSession{"s": s}, retired: make(map[string]retiredSession), owners: NewPlaybackOwners(), bindings: NewBindingTable[frontend.PlayIntent]()}
+	b := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Trickplay: owner.Borrow(), Playback: play, Now: time.Now, Events: events}, sessions: map[string]*brokerSession{"s": s}, retired: make(map[string]retiredSession), owners: NewPlaybackOwners(), bindings: NewBindingTable[frontend.PlayIntent]()}
 	ensured := make(chan struct{})
 	go func() { b.ensureTrickplay(ctx, s, time.Second); close(ensured) }()
 	<-src.entered

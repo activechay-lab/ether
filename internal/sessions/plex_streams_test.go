@@ -48,7 +48,7 @@ func TestPlexStreamBindingAndSidecar(t *testing.T) {
 	}
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2},
 		Progress: &fakeProgress{}, ActiveViewer: active,
 		CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
@@ -124,7 +124,7 @@ func TestPlexSidecarFileHasNoReaderOnMiss(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1},
 		Progress: &fakeProgress{}, ActiveViewer: active,
 		CanPlay:      func(*core.Viewer, bool, time.Time) bool { return true },

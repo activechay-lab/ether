@@ -27,6 +27,8 @@ const SourcePath = "/cluster/playback/source"
 const WorkerPath = "/cluster/playback/worker"
 
 type Options struct {
+	Delivery      core.DeliveryPolicy
+	SurfacePolicy func(core.Protocol) core.SessionPolicy
 	// AuthorRamp snapshots trusted configuration before the initial admission.
 	AuthorRamp     func(core.HLSRequest) core.HLSRequest
 	MediaServers   func(context.Context) ([]nodewire.Identity, error)
@@ -79,7 +81,7 @@ type Runtime struct {
 	reopenLives     map[string]*ReopenResponsibility
 	publicDelivery  bool
 	reopens         map[string]*reopenRecord
-	plexDelivery    http.Handler
+	adapterDelivery http.Handler
 	remotePlayback  *RemotePlayback
 	control         sync.Mutex
 	preparations    map[string]*preparation
@@ -99,6 +101,16 @@ type Runtime struct {
 }
 
 func NewRuntime(o Options) (*Runtime, error) {
+	if o.Delivery.Route == nil {
+		o.Delivery.Route = func(string) (string, string, string, bool) { return "", "", "", false }
+	}
+	if o.Delivery.Session == nil {
+		o.Delivery.Session = func(*url.URL) (string, bool) { return "", false }
+	}
+	if o.Delivery.GrantEnvelope == nil {
+		o.Delivery.GrantEnvelope = func(*http.Request) bool { return false }
+	}
+
 	if o.EncoderRPCDeadline == 0 {
 		o.EncoderRPCDeadline = 2 * time.Second
 	}
@@ -183,7 +195,7 @@ func NewRuntime(o Options) (*Runtime, error) {
 	r.mux.HandleFunc(DeliveryPath, r.deliveryHTTP)
 	r.mux.HandleFunc(TerminalPath, r.terminalHTTP)
 	r.mux.HandleFunc(EvidencePath, r.evidenceHTTP)
-	r.mux.HandleFunc(PlexDeliveryPath, r.plexDeliveryHTTP)
+	r.mux.HandleFunc(PlexDeliveryPath, r.adapterDeliveryHTTP)
 	return r, nil
 }
 func (r *Runtime) Handler() http.Handler { return r.mux }
@@ -463,3 +475,10 @@ func (e recordingEncoder) SupportsDistributedRequest(q core.HLSRequest) bool {
 }
 
 func (r *Runtime) clockReady() bool { return r.o.ClockReady == nil || r.o.ClockReady() }
+
+func (r *Runtime) policy(protocol core.Protocol) core.SessionPolicy {
+	if r.o.SurfacePolicy != nil {
+		return r.o.SurfacePolicy(protocol)
+	}
+	return core.SessionPolicy{}
+}

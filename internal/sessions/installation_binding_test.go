@@ -15,8 +15,8 @@ func TestSiloInstallationBindingSurvivesSharedSessionRow(t *testing.T) {
 	ctx := context.Background()
 	db := store.OpenTest(t)
 	const installation = "11111111-1111-4111-8111-111111111111"
-	writer := clusterStore{db: db, node: "a"}
-	reader := clusterStore{db: db, node: "b"}
+	writer := clusterStore{policy: testSessionPolicy, db: db, node: "a"}
+	reader := clusterStore{policy: testSessionPolicy, db: db, node: "b"}
 	session := frontend.Session{ID: "session", ViewerID: 1, Protocol: "silo", Device: core.Device{ID: "phone"}, Item: core.MovieKey(1), ClientSessionID: installation, StartedAt: time.Now()}
 	if err := writer.put(ctx, session, "source", core.Viewer{ID: 1}, time.Now()); err != nil {
 		t.Fatal(err)
@@ -28,7 +28,7 @@ func TestSiloInstallationBindingSurvivesSharedSessionRow(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	events := NewEventBus(nil, active)
 	defer events.Close()
-	b, err := NewBroker(BrokerDeps{Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}})
 	if err != nil {

@@ -55,7 +55,7 @@ func TestMediaRechecksCurrentPolicyAndScopedDevice(t *testing.T) {
 		}
 		return &core.Title{Key: k}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{Events: events, Playback: playback, Transcoder: transcoder, Live: live, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return canPlay }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(ctx context.Context, v *core.Viewer, d core.Device, k core.RatingKey) (*core.Title, error) {
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy, Events: events, Playback: playback, Transcoder: transcoder, Live: live, Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return canPlay }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Lookup: func(ctx context.Context, v *core.Viewer, d core.Device, k core.RatingKey) (*core.Title, error) {
 		lookupCalls++
 		return lookup(ctx, v, d, k)
 	}, MediaLookup: lookup, ExtractSubtitle: func(_ context.Context, _ string, _ int, _ string, w io.Writer) error {

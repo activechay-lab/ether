@@ -12,7 +12,7 @@ func (b *Broker) HasActivity(id string) bool {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	_, ok := b.plexActivities[id]
+	_, ok := b.adapterActivities[id]
 	return ok
 }
 
@@ -22,20 +22,20 @@ func (b *Broker) EnsureActivity(id string, key int) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if _, ok := b.plexActivities[id]; ok {
+	if _, ok := b.adapterActivities[id]; ok {
 		return
 	}
-	b.plexActivities[id] = &PlaybackActivity{ID: id, SessionKey: key}
+	b.adapterActivities[id] = &PlaybackActivity{ID: id, SessionKey: key}
 }
 
 func (b *Broker) UpsertActivity(id string, fn func(*PlaybackActivity)) PlaybackActivity {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	e, ok := b.plexActivities[id]
+	e, ok := b.adapterActivities[id]
 	if !ok {
-		b.plexActivityNext++
-		e = &PlaybackActivity{ID: id, SessionKey: b.plexActivityNext}
-		b.plexActivities[id] = e
+		b.adapterActivityNext++
+		e = &PlaybackActivity{ID: id, SessionKey: b.adapterActivityNext}
+		b.adapterActivities[id] = e
 	}
 	if fn != nil {
 		fn(e)
@@ -51,11 +51,11 @@ func (b *Broker) RemoveActivity(id string) (PlaybackActivity, bool) {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	e, ok := b.plexActivities[id]
+	e, ok := b.adapterActivities[id]
 	if !ok {
 		return PlaybackActivity{}, false
 	}
-	delete(b.plexActivities, id)
+	delete(b.adapterActivities, id)
 	return *e, true
 }
 
@@ -65,8 +65,8 @@ func (b *Broker) ListActivities() []PlaybackActivity {
 	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	out := make([]PlaybackActivity, 0, len(b.plexActivities))
-	for _, e := range b.plexActivities {
+	out := make([]PlaybackActivity, 0, len(b.adapterActivities))
+	for _, e := range b.adapterActivities {
 		out = append(out, *e)
 	}
 	return out
@@ -79,10 +79,10 @@ func (b *Broker) ExpireActivities(now time.Time, ttl time.Duration) []PlaybackAc
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	var out []PlaybackActivity
-	for id, e := range b.plexActivities {
+	for id, e := range b.adapterActivities {
 		if now.Sub(e.UpdatedAt) > ttl {
 			out = append(out, *e)
-			delete(b.plexActivities, id)
+			delete(b.adapterActivities, id)
 		}
 	}
 	return out

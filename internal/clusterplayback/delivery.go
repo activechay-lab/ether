@@ -68,7 +68,7 @@ func (r *Runtime) deliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	_, id, pathProtocol, ok := neutralDeliveryRoute(u.Path)
+	_, id, pathProtocol, ok := r.o.Delivery.Route(u.Path)
 	protocol := q.Header.Get(deliveryProtocol)
 	if !ok || len(q.Header.Values(deliveryProtocol)) != 1 || len(protocol) > 32 || (pathProtocol != "" && pathProtocol != protocol) {
 		http.Error(w, "scope", 400)

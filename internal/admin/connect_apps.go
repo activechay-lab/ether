@@ -15,6 +15,7 @@ import (
 	qrcode "github.com/skip2/go-qrcode"
 )
 
+// Protocol identities exposed by the console app chooser.
 var connectableSurfaces = []string{"jellyfin", "emby", "silo", "stremio", "webdav", "m3u", "xtream"}
 
 func connectAppUsername(viewer *core.Viewer) string {
@@ -76,12 +77,13 @@ func (h *Handler) connectApps(w http.ResponseWriter, r *http.Request, viewer *co
 	enabled := map[string]bool{}
 	for _, info := range infos {
 		id := string(info.Descriptor.ID)
-		if info.Enabled && (allowed[id] || id == "plex") {
+		if info.Enabled && (allowed[id] || consoleFrontendPolicy(id).ExternalIdentity) {
 			enabled[id] = true
 		}
 	}
 	if r.Method == http.MethodGet {
 		out := make([]string, 0, len(enabled))
+		// The externally managed account frontend appears first in the chooser.
 		if enabled["plex"] {
 			out = append(out, "plex")
 		}
@@ -138,24 +140,24 @@ func (h *Handler) connectApps(w http.ResponseWriter, r *http.Request, viewer *co
 	prefix := strings.TrimSuffix(u.Path, "/ether/me")
 	u.RawPath, u.RawQuery, u.Fragment = "", "", ""
 	result := map[string]string{"surface": surface}
-	switch surface {
-	case "jellyfin", "emby", "silo":
+	switch {
+	case consoleFrontendPolicy(surface).PasswordConnect:
 		u.Path = prefix + "/" + surface
 		result["url"] = u.String()
 		result["username"] = connectAppUsername(viewer)
 		result["password"] = secret
-	case "stremio":
+	case surface == "stremio":
 		u.Path = prefix + "/stremio/" + secret + "/manifest.json"
 		result["url"] = u.String()
-	case "xtream":
+	case surface == "xtream":
 		u.Path = prefix + "/xtream"
 		result["url"] = u.String()
 		result["username"] = frontend.XtreamUsername(secret)
 		result["password"] = secret
-	case "m3u":
+	case surface == "m3u":
 		u.Path = prefix + "/m3u/" + secret + "/playlist.m3u"
 		result["url"] = u.String()
-	case "webdav":
+	case surface == "webdav":
 		u.Path = prefix + "/webdav/"
 		result["url"] = u.String()
 		result["username"] = strconv.FormatInt(viewer.ID, 10)

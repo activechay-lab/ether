@@ -38,7 +38,7 @@ func outputFixture(t *testing.T) (*bufferedSession, []byte) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &Runtime{o: Options{OutputBuffer: b, MaxSegmentBytes: int64(len(data) * 2)}, outputScratch: make(chan struct{}, 1), executions: map[string]*execution{}}
+	r := &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), OutputBuffer: b, MaxSegmentBytes: int64(len(data) * 2)}, outputScratch: make(chan struct{}, 1), executions: map[string]*execution{}}
 	db := openFixtureDB(t)
 	ledger, err := placement.New(db, placement.Options{MaxSessions: 16, MaxLease: time.Minute, LockTimeout: fixtureSQLBudget()}, outputRetirementVerifier{})
 	if err != nil {

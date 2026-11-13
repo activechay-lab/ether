@@ -8,10 +8,12 @@ import (
 // WatchOrigin identifies the authenticated surface and client responsible for
 // a watch update. HistoryTitle retains display identity after catalogue removal.
 type WatchOrigin struct {
-	HistoryTitle        *Title
-	Surface             Protocol
-	SessionID, ClientID string
-	DeviceID            int64
+	// SuppressMetadataRefresh marks explicit writes that already update client state.
+	SuppressMetadataRefresh bool
+	HistoryTitle            *Title
+	Surface                 Protocol
+	SessionID, ClientID     string
+	DeviceID                int64
 }
 type watchOriginKey struct{}
 

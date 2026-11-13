@@ -14,6 +14,7 @@ import (
 // Apps are the frontend surfaces that list Live TV channels. A channel
 // appears in every app unless the owner hides it from one (Channel.HiddenApps).
 // Viewer access restrictions are independent and apply in every app.
+// App names are publication identities, not protocol behavior switches.
 var Apps = []string{"plex", "jellyfin", "emby", "silo", "xtream", "m3u"}
 
 func publishedTo(ctx context.Context, c Channel) bool {
@@ -73,6 +74,7 @@ func convertPlexHidden(ctx context.Context, tx *sql.Tx) error {
 		if hidden {
 			var apps []string
 			_ = json.Unmarshal(data["hiddenApps"], &apps)
+			// Historical persisted identity conversion; no request behavior depends on it.
 			if !slices.Contains(apps, "plex") {
 				apps = append(apps, "plex")
 			}

@@ -40,7 +40,7 @@ func TestExpiredDeliveryAuthorityDoesNotBlockPlayback(t *testing.T) {
 	playback := &rememberingPlayback{fakePlayback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 4}}
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	b, err := NewBroker(BrokerDeps{
+	b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		DB: db, Events: bus, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{},
 		ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 },
@@ -82,7 +82,7 @@ func TestExpiredDeliveryAuthorityDoesNotBlockPlayback(t *testing.T) {
 		t.Fatal(err)
 	}
 	again := &rememberingPlayback{fakePlayback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 4}}
-	restarted, err := NewBroker(BrokerDeps{
+	restarted, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		DB: db, Events: bus, Playback: again, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{},
 		ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 },
@@ -131,7 +131,7 @@ func testDeliveryAuthority(t *testing.T, db *sql.DB) {
 		t.Helper()
 		bus := NewEventBus(nil, active)
 		t.Cleanup(bus.Close)
-		b, err := NewBroker(BrokerDeps{
+		b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 			DB: db, Events: bus, Playback: playback, Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{},
 			ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 			BitrateLimit: func(*core.Viewer) int { return 0 },

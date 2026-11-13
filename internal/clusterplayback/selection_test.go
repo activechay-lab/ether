@@ -64,7 +64,7 @@ func TestTranscodePlacementScoresVerifiedHardwareAndCapacity(t *testing.T) {
 				}
 				return nil
 			}
-			base := Options{DB: db, Placement: ledger, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, Eligible: eligible, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) {
+			base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, Eligible: eligible, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) {
 				if ep, ok := endpoints[id]; ok {
 					return ep, nil
 				}
@@ -186,7 +186,7 @@ func TestConcurrentPlacementFallbackInvariant(t *testing.T) {
 	endpoints := map[nodewire.Identity]string{}
 	allow := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
 	decision := core.Decision{Kind: core.DecisionTranscode, VideoCodec: "h264", AudioCopy: true, Container: "mpegts", SubtitleStream: -1}
-	base := Options{DB: db, Placement: ledger, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, Eligible: allow, MemberRole: allow, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return decision }}
+	base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, Eligible: allow, MemberRole: allow, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return decision }}
 	var front *Runtime
 	for i, id := range ids {
 		opts := base

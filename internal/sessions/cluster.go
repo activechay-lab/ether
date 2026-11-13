@@ -55,7 +55,7 @@ type remoteRetired struct {
 }
 
 func startBrokerCluster(b *Broker, db *sql.DB, node clusterbus.Node) (*brokerCluster, error) {
-	c := &brokerCluster{store: clusterStore{db: db, node: node.NodeID()}, node: node, broker: b, stop: make(chan struct{}), done: make(chan struct{}), kick: make(chan struct{}, 1)}
+	c := &brokerCluster{store: clusterStore{db: db, node: node.NodeID(), policy: b.policy}, node: node, broker: b, stop: make(chan struct{}), done: make(chan struct{}), kick: make(chan struct{}, 1)}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	n, err := c.store.migrateEntries(ctx)
 	if err == nil && n > 0 {
@@ -139,7 +139,7 @@ func (c *brokerCluster) ownershipChanged(ctx context.Context) {
 func (c *brokerCluster) reconcile() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	rows, err := c.store.db.QueryContext(ctx, `SELECT id FROM plex_sessions WHERE node_id=? AND active=0 AND COALESCE(protocol,'plex')<>'plex'`, c.store.node)
+	rows, err := c.store.db.QueryContext(ctx, `SELECT id FROM plex_sessions WHERE node_id=? AND active=0 AND broker_managed=1`, c.store.node)
 	if err != nil {
 		if c.broker.deps.OnEventError != nil {
 			c.broker.deps.OnEventError(err)

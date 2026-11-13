@@ -68,7 +68,7 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	var timelineProgress atomic.Int64
 	auth := &composedAuth{}
 	policy := &composedPolicy{}
-	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
+	base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 32, ClockBoundKnown: true, ClockSkew: time.Millisecond, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision {
 		return core.Decision{Kind: core.DecisionRemux, VideoCopy: true, AudioCopy: true, Container: "mpegts", AudioStream: -1, SubtitleStream: -1}
 	}}
 	sourceOpts := base
@@ -142,7 +142,7 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, auth.ActiveUser)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(_ *core.User, _ core.RatingKey, position time.Duration, _ time.Duration, _ string) {
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: remote, Transcoder: decision, DistributedHLS: owner, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(_ *core.User, _ core.RatingKey, position time.Duration, _ time.Duration, _ string) {
 		timelineProgress.Store(int64(position))
 	}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)
@@ -175,7 +175,7 @@ func TestDeliveryAndControllerLossKeepExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	survivorBroker, err := sessions.NewBroker(sessions.BrokerDeps{Playback: survivorRemote, Transcoder: survivorDecision, DistributedHLS: sender, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(_ *core.User, _ core.RatingKey, position time.Duration, _ time.Duration, _ string) {
+	survivorBroker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: testSessionPolicy, Playback: survivorRemote, Transcoder: survivorDecision, DistributedHLS: sender, Events: events, ActiveViewer: auth.ActiveUser, CanPlay: policy.CanPlay, BitrateLimit: func(*core.User) int { return 0 }, Progress: composedState{}, OnTimeline: func(_ *core.User, _ core.RatingKey, position time.Duration, _ time.Duration, _ string) {
 		timelineProgress.Store(int64(position))
 	}, Lookup: func(c context.Context, u *core.User, d core.Device, k core.RatingKey) (*core.Title, error) {
 		return fixtureCatalog{}.Get(c, k)

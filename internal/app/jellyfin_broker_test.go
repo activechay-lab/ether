@@ -48,7 +48,7 @@ func TestJellyfinRealBrokerPlayback(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, active)
 	defer events.Close()
-	broker, err := sessions.NewBroker(sessions.BrokerDeps{Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	broker, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: sessionPolicy, Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: k}, nil
 	}, Playback: coldFixturePlayback{p}, Transcoder: activityTranscoder{}, Progress: activityProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events})
 	if err != nil {

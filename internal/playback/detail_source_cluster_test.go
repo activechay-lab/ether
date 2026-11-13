@@ -46,7 +46,7 @@ func TestDetailSourceReopensSameRevisionOnAnotherNode(t *testing.T) {
 		lookup := func(ctx context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			return h.catalog.Get(ctx, key)
 		}
-		b, err := sessions.NewBroker(sessions.BrokerDeps{DB: h.db, Lookup: lookup, MediaLookup: lookup, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
+		b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, DB: h.db, Lookup: lookup, MediaLookup: lookup, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
 		if err != nil {
 			t.Fatal(err)
 		}

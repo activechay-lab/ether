@@ -120,7 +120,7 @@ func (s *RowsService) rows(ctx context.Context, req frontend.RowRequest, protoco
 		fetch = min(fetch*2, 1000)
 	}
 	if req.Purpose == "" {
-		out, err = s.appendHomeFallback(ctx, req, protocol, out, limit)
+		out, err = s.appendHomeFallback(ctx, req, out, limit)
 		if err != nil {
 			return nil, err
 		}
@@ -226,10 +226,9 @@ func (s *RowsService) rows(ctx context.Context, req frontend.RowRequest, protoco
 const rowsFenceRetries = 4
 
 // appendHomeFallback adds policy-checked library shelves when Home is only
-// Continue Watching and Next Up. Plex Home is assembled by its own adapter
-// and stays byte-identical, so this never runs for that protocol.
-func (s *RowsService) appendHomeFallback(ctx context.Context, req frontend.RowRequest, protocol core.Protocol, out []frontend.Row, limit int) ([]frontend.Row, error) {
-	if req.Placement != frontend.PlacementHome || protocol == "plex" || s.d.HomeFallback == nil {
+// Continue Watching and Next Up. The host supplies the fallback for each surface.
+func (s *RowsService) appendHomeFallback(ctx context.Context, req frontend.RowRequest, out []frontend.Row, limit int) ([]frontend.Row, error) {
+	if req.Placement != frontend.PlacementHome || s.d.HomeFallback == nil {
 		return out, nil
 	}
 	for _, row := range out {

@@ -27,6 +27,7 @@ import (
 
 // BrokerDeps are the explicit dependencies shared by all protocol surfaces.
 type BrokerDeps struct {
+	SurfacePolicy func(frontend.Protocol) core.SessionPolicy
 	// OnActualPlaying runs in a bounded worker after authenticated playing telemetry.
 	OnActualPlaying func(context.Context, *Broker, PlayingSubtitleSession)
 	// DistributedHLS is opt-in; unsupported plans stay local before reservation.
@@ -173,8 +174,8 @@ type Broker struct {
 	mu                  sync.Mutex
 	plans               map[string]brokerPlan
 	sessions            map[string]*brokerSession
-	plexActivities      map[string]*PlaybackActivity
-	plexActivityNext    int
+	adapterActivities   map[string]*PlaybackActivity
+	adapterActivityNext int
 	retired             map[string]retiredSession
 	lazySessions        map[string]lazySession
 	lazyCleanup         map[string]lazyCleanupEntry
@@ -199,7 +200,7 @@ type Broker struct {
 	planSweepEvery      time.Duration
 	detailPlans         map[string]*detailFlight
 	cluster             *brokerCluster
-	plexStreams         *StreamTable
+	adapterStreams      *StreamTable
 	historyQueue        chan sourceHistorySample
 	historyCancel       context.CancelFunc
 	historyDone         chan struct{}
@@ -228,7 +229,7 @@ func NewBroker(d BrokerDeps) (*Broker, error) {
 	if limit > 4096 {
 		return nil, errors.New("sessions: max pending starts exceeds 4096")
 	}
-	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), plexActivities: make(map[string]*PlaybackActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), playCapsByDevice: make(map[deviceKey]rememberedPlayCaps), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), plexStreams: NewStreamTable()}
+	b := &Broker{sampleLimit: 100000, deps: d, startSlots: make(chan struct{}, limit), shutdownTimeout: 10 * time.Second, lazyCleanupWait: 5 * time.Second, planSweepEvery: 5 * time.Second, plans: make(map[string]brokerPlan), pendingByViewer: make(map[int64]int), sourceLeases: make(map[string]*sourceLease), sessions: make(map[string]*brokerSession), adapterActivities: make(map[string]*PlaybackActivity), retired: make(map[string]retiredSession), devices: make(map[deviceKey]frontend.SessionCapabilities), playCapsByDevice: make(map[deviceKey]rememberedPlayCaps), owners: coord.Owners, gates: coord.Gates, bindings: NewBindingTable[frontend.PlayIntent](), adapterStreams: NewStreamTable()}
 	if d, ok := b.deps.DistributedHLS.(interface {
 		BindDelivery(func(http.ResponseWriter, *http.Request, string)) error
 	}); ok {
@@ -398,7 +399,7 @@ func (b *Broker) Plan(ctx context.Context, req frontend.PlanRequest) (frontend.P
 	if req.Protocol == "silo" && req.Intent.ClientSessionID != "" && !canonicalUUID(req.Intent.ClientSessionID) {
 		return frontend.PlayPlan{}, core.ErrUnauthorized
 	}
-	if req.Protocol == "plex" {
+	if b.policy(req.Protocol).ExternalAdmission {
 		if admit, ok := frontend.PlanAdmissionFrom(ctx); ok {
 			return b.planPlexAdmission(ctx, req, admit)
 		}
@@ -849,7 +850,7 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 		if err := binding.BindClientSession(ctx, id, ps.ID); err != nil {
 			return frontend.Session{}, err
 		}
-	} else if req.Protocol == "jellyfin" || req.Protocol == "emby" {
+	} else if b.policy(req.Protocol).DistributedBindings {
 		if binding, ok := b.deps.DistributedHLS.(interface {
 			BindLocalClientSession(context.Context, string, *core.PlaySession) error
 		}); ok {
@@ -858,7 +859,7 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 			}
 		}
 	}
-	if req.Protocol == "plex" && p.external {
+	if b.policy(req.Protocol).ExternalAdmission && p.external {
 		if !validPlexTranscodeID(p.request.Intent.ClientSessionID) {
 			return frontend.Session{}, core.ErrNotAvailable
 		}
@@ -872,7 +873,7 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 	}
 	grant := rand.Text()
 	playbackID := p.request.Intent.PlaybackID
-	if playbackID == "" && req.Protocol != "plex" {
+	if playbackID == "" && !b.policy(req.Protocol).ExternalAdmission {
 		playbackID = id
 	}
 	session := frontend.Session{ID: id, MediaPath: "/sessions/media/" + id + "/" + grant + "/file", Protocol: req.Protocol, ViewerID: v.ID, Device: p.request.Device, Item: p.request.Item, StartedAt: b.deps.Now(), PlayMethod: playMethod(p.decision.Kind)}
@@ -946,7 +947,7 @@ func (b *Broker) Open(ctx context.Context, req frontend.OpenRequest) (frontend.S
 		}
 		noter.NotePlayRequest(ps.ID, at)
 	}
-	if b.deps.SourceHistory != nil && session.Protocol != "plex" {
+	if b.deps.SourceHistory != nil && !b.policy(session.Protocol).ExternalAdmission {
 		// The epoch and the opened-file facts are durable bookkeeping. The
 		// session URL does not wait for that write. Start after the session
 		// is visible so the writer can find the row it updates.
@@ -1062,7 +1063,7 @@ func (b *Broker) Sessions(ctx context.Context, a frontend.SessionAccess) ([]fron
 	}
 	visible := out[:0]
 	for i := range out {
-		if b.cluster != nil && out[i].Protocol != "plex" {
+		if b.cluster != nil && !b.policy(out[i].Protocol).ExternalAdmission {
 			active, err := b.cluster.store.current(ctx, out[i].ID)
 			if err != nil {
 				return nil, err
@@ -1092,7 +1093,7 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 			// Static playback opens a second session and retires the one
 			// PlaybackInfo minted. Infuse keeps reporting that first id.
 			// A bare stop still does not rewind a resume point.
-			if item != 0 && (a.Protocol == "jellyfin" || a.Protocol == "emby") && (t.Position > 0 || t.Duration > 0) {
+			if item != 0 && b.policy(a.Protocol).DistributedBindings && (t.Position > 0 || t.Duration > 0) {
 				if err := b.recordItemTimeline(ctx, a, id, item, t); err != nil {
 					return err
 				}
@@ -1129,7 +1130,7 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 		}
 		return core.ErrUnauthorized
 	}
-	if b.cluster != nil && s.public.Protocol != "plex" {
+	if b.cluster != nil && !b.policy(s.public.Protocol).ExternalAdmission {
 		active, err := b.cluster.store.active(ctx, s.public.ID)
 		if err != nil {
 			return err
@@ -1187,7 +1188,7 @@ func (b *Broker) Report(ctx context.Context, a frontend.SessionAccess, id string
 		b.owners.BindFor("broker", s.public.ViewerID, s.clientID, s.public.Item, s.playbackID, s.playID, false, b.deps.Now())
 	}
 	originSession := s.public.ID
-	if s.public.Protocol == "plex" && s.playbackID != "" {
+	if b.policy(s.public.Protocol).ExternalAdmission && s.playbackID != "" {
 		originSession = s.playbackID
 	}
 	ctx = state.WithOrigin(ctx, state.Origin{Surface: s.public.Protocol, SessionID: originSession, ClientID: s.public.Device.ID})
@@ -1260,7 +1261,7 @@ func (b *Broker) recordItemTimeline(ctx context.Context, a frontend.SessionAcces
 // ReportItemProgress records a Jellyfin or Emby timeline that names an item
 // instead of a broker session.
 func (b *Broker) ReportItemProgress(ctx context.Context, a frontend.SessionAccess, item core.RatingKey, t frontend.Timeline) error {
-	if a.Protocol != "jellyfin" && a.Protocol != "emby" {
+	if !b.policy(a.Protocol).DistributedBindings {
 		return core.ErrUnauthorized
 	}
 	viewer, err := b.viewer(ctx, a.Viewer)
@@ -1319,10 +1320,10 @@ func (b *Broker) ReportItemProgress(ctx context.Context, a frontend.SessionAcces
 // It does not prepare or stop one.
 func (b *Broker) ReportProgress(ctx context.Context, a frontend.SessionAccess, item core.RatingKey, t frontend.Timeline) error {
 	viewer, err := b.viewer(ctx, a.Viewer)
-	if err != nil || a.Protocol != "plex" || a.Device.ID == "" || item == 0 {
+	if err != nil || !b.policy(a.Protocol).ExternalAdmission || a.Device.ID == "" || item == 0 {
 		return core.ErrUnauthorized
 	}
-	ctx = state.WithOrigin(ctx, state.Origin{Surface: "plex", SessionID: t.PlaybackID, ClientID: a.Device.ID})
+	ctx = state.WithOrigin(ctx, state.Origin{Surface: a.Protocol, SessionID: t.PlaybackID, ClientID: a.Device.ID})
 	if err := RecordProgress(ctx, b.deps.Progress, viewer.ID, item, t.Position, t.Duration, t.State); err != nil {
 		return err
 	}
@@ -1425,7 +1426,7 @@ func (b *Broker) stopLocked(ctx context.Context, s *brokerSession) error {
 	if hold != nil {
 		// Plex applies its own idle rule after the stop, so other sources of
 		// the same release keep their thumbnails.
-		hold.Close(s.public.Protocol != "plex")
+		hold.Close(!b.policy(s.public.Protocol).ExternalAdmission)
 	}
 	for _, cancel := range transfers {
 		cancel()

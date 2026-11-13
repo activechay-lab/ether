@@ -46,7 +46,7 @@ func TestReencodedRecoveryEligibility(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			r := &Runtime{automaticOutput: true, o: Options{OutputBuffer: b}}
+			r := &Runtime{automaticOutput: true, o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), OutputBuffer: b}}
 			route := Route{Fence: placement.Fence{Session: tc.name, Generation: 1}, Encoder: tc.encoder}
 			if got := r.newBufferedSession(route, q, &remotetranscode.Session{}) != nil; got != tc.want {
 				t.Fatalf("automatic buffer=%v want %v", got, tc.want)

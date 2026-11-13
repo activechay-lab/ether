@@ -27,7 +27,7 @@ func TestSwiftfinVideoRangeDirectPlaysOrTranscodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	broker := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	broker := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 	req := frontend.PlanRequest{Caps: client, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: -1}}}
 	no := false
 	play := func(video core.StreamInfo) (core.Decision, error) {
@@ -107,7 +107,7 @@ func TestAndroidTVUnsupportedRangeTranscodes(t *testing.T) {
 		Transcoding: []core.ClientTranscodeProfile{{MediaType: "video", Delivery: "hls", Containers: []string{"mp4"}, VideoCodecs: []string{"h264"}, AudioCodecs: []string{"aac"}, MaxAudioChannels: "8"}},
 	}
 	caps := core.ClientCaps{Profiles: profiles, Containers: []string{"mp4"}, VideoCodecs: []string{"h264", "hevc"}, AudioCodecs: []string{"aac"}, HLSContainers: []string{"mp4"}}
-	broker := &Broker{deps: BrokerDeps{Transcoder: profileTranscoder{}}}
+	broker := &Broker{deps: BrokerDeps{SurfacePolicy: testSessionPolicy, Transcoder: profileTranscoder{}}}
 	req := frontend.PlanRequest{Caps: caps, Intent: frontend.PlayIntent{Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 1, SubtitleStream: -1}}}
 	no := false
 	play := func(video core.StreamInfo) (core.Decision, error) {

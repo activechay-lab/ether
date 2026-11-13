@@ -120,7 +120,7 @@ func TestRemoteDelayedOpenCannotReviveStopOrCancellation(t *testing.T) {
 			now := time.Unix(1000, 0)
 			p, e := lifecycleFixture(&now)
 			entered, release := make(chan struct{}), make(chan struct{})
-			p.r = &Runtime{o: Options{Endpoint: func(_ context.Context, owner nodewire.Identity) (string, error) {
+			p.r = &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), Endpoint: func(_ context.Context, owner nodewire.Identity) (string, error) {
 				if owner != e.owner {
 					t.Error("open switched exact owner")
 				}
@@ -184,7 +184,7 @@ func TestRemoteCancelledOpenPreservesExistingClient(t *testing.T) {
 	e.state = "paused"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	p.r = &Runtime{o: Options{Endpoint: func(context.Context, nodewire.Identity) (string, error) { cancel(); return "", ErrDenied }}}
+	p.r = &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), Endpoint: func(context.Context, nodewire.Identity) (string, error) { cancel(); return "", ErrDenied }}}
 	if p.OpenRemoteSource(ctx, "remote") == nil {
 		t.Fatal("cancelled open accepted")
 	}
@@ -211,7 +211,7 @@ func TestRemoteTickRequiresExactReceiptEvenWithSourceGone(t *testing.T) {
 			db := openFixtureDB(t)
 			self := nodewire.Identity{Cluster: "cluster", NodeID: "controller", Boot: "controller-boot"}
 			calls := 0
-			p.r = &Runtime{o: Options{DB: db, Self: self, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, Endpoint: func(_ context.Context, owner nodewire.Identity) (string, error) {
+			p.r = &Runtime{o: Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Self: self, MemberRole: func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }, Endpoint: func(_ context.Context, owner nodewire.Identity) (string, error) {
 				calls++
 				if owner != e.owner {
 					t.Error("retirement switched original owner")

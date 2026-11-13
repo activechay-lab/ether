@@ -540,8 +540,8 @@ func fallbackParents(ctx context.Context, titles []core.Title) []core.RatingKey 
 	return out
 }
 
-// ForSurface keeps Plex poster thumbs while MediaBrowser uses landscape artwork.
-func (a Source) ForSurface(protocol core.Protocol) frontend.Artwork {
-	a.LandscapeThumb = protocol == "jellyfin" || protocol == "emby"
+// WithLandscapeThumb returns a scoped copy with the adapter-selected thumb shape.
+func (a Source) WithLandscapeThumb(landscape bool) frontend.Artwork {
+	a.LandscapeThumb = landscape
 	return &a
 }

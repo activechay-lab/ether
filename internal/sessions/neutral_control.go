@@ -16,7 +16,7 @@ type neutralControl interface {
 
 func (b *Broker) forwardNeutralControl(ctx context.Context, a frontend.SessionAccess, id, operation string, timeline frontend.Timeline, request frontend.StreamRequest) (string, bool, error) {
 	remote, ok := b.deps.DistributedHLS.(neutralControl)
-	if !ok || !neutralProtocol(a.Protocol) {
+	if !ok || !b.neutralProtocol(a.Protocol) {
 		return "", false, nil
 	}
 	viewer, err := b.viewer(ctx, a.Viewer)

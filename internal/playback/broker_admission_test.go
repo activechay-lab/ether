@@ -35,7 +35,7 @@ func TestLegacyPlexAndBrokerShareAdmission(t *testing.T) {
 			}
 			events := sessions.NewEventBus(nil, active)
 			defer events.Close()
-			b, err := sessions.NewBroker(sessions.BrokerDeps{Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+			b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 				return h.catalog.Get(ctx, k)
 			}, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
 			if err != nil {
@@ -44,6 +44,8 @@ func TestLegacyPlexAndBrokerShareAdmission(t *testing.T) {
 			defer b.Close(ctx)
 			legacyCaps := defaultCaps("plex-device")
 			legacyCaps.Protocol = "plex"
+			legacyCaps.AwaitAdmissionIndex = true
+			legacyCaps.DeferSourceCodecValidation = true
 			legacy, err := h.m.Prepare(ctx, friend, movieKey, legacyCaps)
 			if err != nil {
 				t.Fatal(err)
@@ -81,6 +83,8 @@ func TestBrokerScopeCannotShareOrStopCollidingPlexSource(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10000, time.Minute)}, []string{"A"})
 	caps := defaultCaps("8:jellyfincolliding-device")
 	caps.Protocol = "plex"
+	caps.AwaitAdmissionIndex = true
+	caps.DeferSourceCodecValidation = true
 	plex, err := h.m.Prepare(ctx, friend, movieKey, caps)
 	if err != nil {
 		t.Fatal(err)
@@ -113,6 +117,8 @@ func TestCollidingScopesEachConsumeStreamLimit(t *testing.T) {
 	h := newHarness(t, []*fakeRelease{mkv("A", 10000, time.Minute)}, []string{"A"}, func(h *harness, _ *Options) { h.cfg.Server.MaxStreams = 1 })
 	caps := defaultCaps("8:jellyfincolliding-device")
 	caps.Protocol = "plex"
+	caps.AwaitAdmissionIndex = true
+	caps.DeferSourceCodecValidation = true
 	plex, err := h.m.Prepare(ctx, friend, movieKey, caps)
 	if err != nil {
 		t.Fatal(err)
@@ -187,7 +193,7 @@ func TestColdHandlelessBrokerPlaybackUsesOpenedSource(t *testing.T) {
 	}
 	events := sessions.NewEventBus(nil, active)
 	defer events.Close()
-	b, err := sessions.NewBroker(sessions.BrokerDeps{Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
+	b, err := sessions.NewBroker(sessions.BrokerDeps{SurfacePolicy: brokerTestPolicy, Lookup: func(ctx context.Context, _ *core.Viewer, _ core.Device, k core.RatingKey) (*core.Title, error) {
 		return h.catalog.Get(ctx, k)
 	}, Playback: h.m, Transcoder: h.tr, Progress: h.state, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {}, Events: events, Now: h.clock.Now})
 	if err != nil {

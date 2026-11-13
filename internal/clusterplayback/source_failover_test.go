@@ -58,7 +58,7 @@ func TestSourceHangKeepsSequenceEncoderAndCoordinator(t *testing.T) {
 	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
 	caps := remotetranscode.Supported()
 	caps.Keyframes = true
-	base := Options{DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, WorkerCapabilities: caps, RemoteCapabilities: caps, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
+	base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Endpoint: endpoint, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true, ClockSkew: time.Millisecond, WorkerCapabilities: caps, RemoteCapabilities: caps, Decide: func(core.MediaInfo, core.ClientCaps, core.DecideOptions) core.Decision { return core.Decision{} }}
 	o := base
 	o.Roles = config.NodeRoles{config.RoleServer, config.RoleSource}
 	o.Self = sourceID

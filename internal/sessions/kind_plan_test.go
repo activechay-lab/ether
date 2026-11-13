@@ -59,7 +59,7 @@ func TestPlanKindDecidesTranscodeOrDirect(t *testing.T) {
 		playback := &kindPlayback{fakePlayback: fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 4}, info: info}
 		events := NewEventBus(nil, active)
 		t.Cleanup(events.Close)
-		b, err := NewBroker(BrokerDeps{
+		b, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 			Events: events, Playback: playback, Transcoder: profileTranscoder{}, Progress: &fakeProgress{},
 			ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 			BitrateLimit: func(*core.Viewer) int { return 0 },

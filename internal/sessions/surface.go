@@ -15,11 +15,16 @@ import (
 )
 
 // BindSurface prevents an adapter from submitting another surface's identity.
-func BindSurface(b frontend.Sessions, protocol frontend.Protocol) frontend.Sessions {
-	return surface{broker: b, protocol: protocol}
+func BindSurface(b frontend.Sessions, protocol frontend.Protocol, policies ...core.SessionPolicy) frontend.Sessions {
+	s := surface{broker: b, protocol: protocol}
+	if len(policies) > 0 {
+		s.options = &policies[0]
+	}
+	return s
 }
 
 type surface struct {
+	options  *core.SessionPolicy
 	broker   frontend.Sessions
 	protocol frontend.Protocol
 }
@@ -47,7 +52,7 @@ func (s surface) HasBroker() bool {
 }
 
 func (s surface) SegmentedEncoder() frontend.SegmentedEncoder {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return nil
 	}
 	if rt := s.runtime(); rt != nil && rt.SegmentedEncoder() != nil {
@@ -346,7 +351,7 @@ func (s surface) CancelTrickplay(id string) {
 }
 
 func (s surface) PlexSessionForPlayback(ctx context.Context, a frontend.SessionAccess, item frontend.RatingKey, playbackID, transcodeID string) (string, error) {
-	if s.protocol != "plex" || a.Protocol != s.protocol {
+	if !s.policy().ExternalAdmission || a.Protocol != s.protocol {
 		return "", core.ErrUnauthorized
 	}
 	if rt := s.runtime(); rt != nil {
@@ -360,7 +365,7 @@ func (s surface) PlexSessionForPlayback(ctx context.Context, a frontend.SessionA
 }
 
 func (s surface) PlexSessionForSource(ctx context.Context, a frontend.SessionAccess, item frontend.RatingKey, playID string) (string, error) {
-	if s.protocol != "plex" || a.Protocol != s.protocol {
+	if !s.policy().ExternalAdmission || a.Protocol != s.protocol {
 		return "", core.ErrUnauthorized
 	}
 	if rt := s.runtime(); rt != nil {
@@ -374,7 +379,7 @@ func (s surface) PlexSessionForSource(ctx context.Context, a frontend.SessionAcc
 }
 
 func (s surface) PlexSessionSource(id string) (string, bool) {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return "", false
 	}
 	if rt := s.runtime(); rt != nil {
@@ -388,7 +393,7 @@ func (s surface) PlexSessionSource(id string) (string, bool) {
 }
 
 func (s surface) NotePlexEncoder(id string, format frontend.StreamFormat, decision core.Decision, offset time.Duration) {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return
 	}
 	if rt := s.runtime(); rt != nil {
@@ -477,7 +482,7 @@ func (s surface) RecordAuthorizedSubtitleIntent(ctx context.Context, viewer int6
 }
 
 func (s surface) ConfirmAdmission(ctx context.Context, viewer *core.Viewer, remote bool) (*core.Viewer, error) {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return nil, core.ErrUnauthorized
 	}
 	if rt := s.runtime(); rt != nil {
@@ -661,7 +666,7 @@ func (s surface) ActivityStore() frontend.PlaybackActivityStore {
 }
 
 func (s surface) StartSegmentedHLS(ctx context.Context, u *core.User, playID, id string, req core.HLSRequest) (core.HLSSession, error) {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return nil, core.ErrUnauthorized
 	}
 	enc, ok := s.broker.(frontend.SegmentedEncoder)
@@ -672,7 +677,7 @@ func (s surface) StartSegmentedHLS(ctx context.Context, u *core.User, playID, id
 }
 
 func (s surface) SegmentedHLSSession(id string) (core.HLSSession, bool) {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return nil, false
 	}
 	enc, ok := s.broker.(frontend.SegmentedEncoder)
@@ -683,7 +688,7 @@ func (s surface) SegmentedHLSSession(id string) (core.HLSSession, bool) {
 }
 
 func (s surface) StopSegmentedHLS(id string) bool {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return false
 	}
 	enc, ok := s.broker.(frontend.SegmentedEncoder)
@@ -694,7 +699,7 @@ func (s surface) StopSegmentedHLS(id string) bool {
 }
 
 func (s surface) ForwardEncodedMedia(w http.ResponseWriter, r *http.Request, id string) bool {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return false
 	}
 	fwd, ok := s.broker.(frontend.EncodedMediaForwarder)
@@ -705,7 +710,7 @@ func (s surface) ForwardEncodedMedia(w http.ResponseWriter, r *http.Request, id 
 }
 
 func (s surface) ForwardGrantMedia(w http.ResponseWriter, r *http.Request, id string) bool {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return false
 	}
 	fwd, ok := s.broker.(frontend.GrantMediaForwarder)
@@ -716,7 +721,7 @@ func (s surface) ForwardGrantMedia(w http.ResponseWriter, r *http.Request, id st
 }
 
 func (s surface) PlexHLSDistributed(id string) bool {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return false
 	}
 	dist, ok := s.broker.(frontend.EncoderBindingStore)
@@ -727,7 +732,7 @@ func (s surface) PlexHLSDistributed(id string) bool {
 }
 
 func (s surface) SavePlexBinding(ctx context.Context, id string, raw []byte) error {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return core.ErrUnauthorized
 	}
 	store, ok := s.broker.(frontend.EncoderBindingStore)
@@ -738,7 +743,7 @@ func (s surface) SavePlexBinding(ctx context.Context, id string, raw []byte) err
 }
 
 func (s surface) LoadPlexBinding(ctx context.Context, id string) ([]byte, error) {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return nil, core.ErrUnauthorized
 	}
 	store, ok := s.broker.(frontend.EncoderBindingStore)
@@ -749,7 +754,7 @@ func (s surface) LoadPlexBinding(ctx context.Context, id string) ([]byte, error)
 }
 
 func (s surface) DeleteBinding(ctx context.Context, id string) error {
-	if s.protocol != "plex" {
+	if !s.policy().ExternalAdmission {
 		return core.ErrUnauthorized
 	}
 	store, ok := s.broker.(frontend.EncoderBindingDeleter)
@@ -757,4 +762,16 @@ func (s surface) DeleteBinding(ctx context.Context, id string) error {
 		return core.ErrNotAvailable
 	}
 	return store.DeleteBinding(ctx, id)
+}
+
+func (s surface) policy() core.SessionPolicy {
+	if s.options != nil {
+		return *s.options
+	}
+	if b, ok := s.broker.(interface {
+		policy(frontend.Protocol) core.SessionPolicy
+	}); ok {
+		return b.policy(s.protocol)
+	}
+	return core.SessionPolicy{}
 }

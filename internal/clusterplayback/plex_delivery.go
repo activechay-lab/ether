@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 )
 
@@ -16,58 +15,13 @@ const PlexDeliveryPath = "/cluster/playback/plex-media"
 func (r *Runtime) BindPlexDelivery(handler http.Handler) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if handler == nil || r.plexDelivery != nil {
+	if handler == nil || r.adapterDelivery != nil {
 		return ErrDenied
 	}
-	r.plexDelivery = handler
+	r.adapterDelivery = handler
 	return nil
 }
-func plexMediaSession(u *url.URL) (string, bool) {
-	const prefix = "/video/:/transcode/universal/session/"
-	if !strings.HasPrefix(u.Path, prefix) {
-		return "", false
-	}
-	parts := strings.Split(strings.TrimPrefix(u.Path, prefix), "/")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return "", false
-	}
-	for _, part := range parts {
-		if part == "." || part == ".." || len(part) > 128 {
-			return "", false
-		}
-		for _, c := range part {
-			if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '-' || c == '_' || c == '.') {
-				return "", false
-			}
-		}
-	}
-	file := parts[2]
-	if file != "index.m3u8" && file != "init.mp4" && file != "header" && !strings.HasSuffix(file, ".ts") && !strings.HasSuffix(file, ".m4s") && !strings.HasSuffix(file, ".mkv") {
-		return "", false
-	}
-	return parts[0], true
-}
-
-var plexForwardHeaders = []string{"Authorization", "Accept", "User-Agent", "X-Plex-Token", "X-Plex-Client-Identifier", "X-Plex-Client-Id", "X-Plex-Product", "X-Plex-Version", "X-Plex-Platform", "X-Plex-Platform-Version", "X-Plex-Device", "X-Plex-Device-Name", "X-Plex-Model", "X-Plex-Device-Vendor", "X-Plex-Language", "X-Plex-Features", "X-Plex-Client-Profile-Extra", "X-Plex-Client-Capabilities", "X-Plex-Session-Identifier", "X-Plex-Session-Id", "X-Plex-Container-Start", "X-Plex-Container-Size", "Range", "If-Range", "If-None-Match", "If-Modified-Since"}
-
-func copyPlexHeaders(dst, src http.Header) error {
-	total := 0
-	for _, h := range plexForwardHeaders {
-		values := src.Values(h)
-		if len(values) > 16 {
-			return ErrDenied
-		}
-		for _, v := range values {
-			total += len(h) + len(v)
-			if len(v) > 4096 || total > 16384 {
-				return ErrDenied
-			}
-		}
-		dst[h] = append([]string(nil), values...)
-	}
-	return nil
-}
-func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
+func (r *Runtime) adapterDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 	peer, e := r.o.Guard.Request(q)
 	if e != nil || !r.mediaPeer(q.Context(), peer) {
 		http.Error(w, "denied", 401)
@@ -91,7 +45,7 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		http.Error(w, "scope", 400)
 		return
 	}
-	id, ok := plexMediaSession(u)
+	id, ok := r.o.Delivery.Session(u)
 	if !ok {
 		http.NotFound(w, q)
 		return
@@ -102,7 +56,7 @@ func (r *Runtime) plexDeliveryHTTP(w http.ResponseWriter, q *http.Request) {
 		return
 	}
 	r.mu.Lock()
-	handler := r.plexDelivery
+	handler := r.adapterDelivery
 	r.mu.Unlock()
 	if handler == nil {
 		http.Error(w, "unavailable", 503)
@@ -124,7 +78,7 @@ func (r *Runtime) ForwardEncodedMedia(w http.ResponseWriter, q *http.Request, pu
 	if q.Header.Get(deliveryHop) != "" {
 		return false
 	}
-	id, ok := plexMediaSession(q.URL)
+	id, ok := r.o.Delivery.Session(q.URL)
 	if !ok || id != publicID {
 		return false
 	}
@@ -157,7 +111,7 @@ func (r *Runtime) ForwardEncodedMedia(w http.ResponseWriter, q *http.Request, pu
 		http.Error(w, "delivery unavailable", 502)
 		return true
 	}
-	if copyPlexHeaders(request.Header, q.Header) != nil {
+	if r.copyDeliveryHeaders(request.Header, q.Header) != nil {
 		http.Error(w, "request headers too large", 431)
 		return true
 	}
@@ -193,4 +147,21 @@ func (r *Runtime) ForwardEncodedMedia(w http.ResponseWriter, q *http.Request, pu
 		_, _ = io.Copy(w, response.Body)
 	}
 	return true
+}
+func (r *Runtime) copyDeliveryHeaders(dst, src http.Header) error {
+	total := 0
+	for _, h := range r.o.Delivery.Headers {
+		values := src.Values(h)
+		if len(values) > 16 {
+			return ErrDenied
+		}
+		for _, v := range values {
+			total += len(h) + len(v)
+			if len(v) > 4096 || total > 16384 {
+				return ErrDenied
+			}
+		}
+		dst[h] = append([]string(nil), values...)
+	}
+	return nil
 }

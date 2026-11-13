@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	mbplayer "github.com/braedonsaunders/ether/internal/frontends/mediabrowser/playerlab"
+	plexplayer "github.com/braedonsaunders/ether/internal/frontends/plex/playerlab"
 	"github.com/braedonsaunders/ether/internal/hlsplay"
 )
 
@@ -69,6 +71,23 @@ func main() {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	if c.Prefix == "" {
+		c.Prefix = "/" + c.Protocol
+	}
+	switch c.Protocol {
+	case "plex":
+		c.NewControl = plexplayer.New
+		c.PinControlOrigins = true
+	case "jellyfin":
+		c.NewControl = mbplayer.New("Jellyfin Web", "MediaBrowser")
+		c.ReportStarted = true
+	case "emby":
+		c.NewControl = mbplayer.New("Emby Web", "Emby")
+		c.ReportStarted = true
+	default:
+		fmt.Fprintln(os.Stderr, "unsupported protocol")
+		os.Exit(2)
+	}
 	r, e := hlsplay.Run(ctx, c)
 	fmt.Printf("outcome=%s segments=%d stalls=%d retries=%d\n", r.Outcome, len(r.Segments), len(r.Stalls), r.Retries)
 	if e != nil || r.Outcome != "passed" {

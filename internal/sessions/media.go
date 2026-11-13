@@ -195,7 +195,7 @@ func (b *Broker) StartStream(ctx context.Context, a frontend.SessionAccess, id s
 		return "", core.ErrNotAvailable
 	}
 	b.transcodeStop(id)
-	request := core.HLSRequest{RequireIndependentProof: s.public.Protocol == "emby" || s.public.Protocol == "jellyfin", SessionID: id, ReleaseID: ps.SourceReleaseID(), InputURL: b.deps.Playback.InputURL(s.playID), Info: ps.Info, Decision: dec, StartOffset: req.Position, SegmentDuration: req.SegmentDuration, Protocol: proto}
+	request := core.HLSRequest{RequireIndependentProof: b.policy(s.public.Protocol).DistributedBindings, SessionID: id, ReleaseID: ps.SourceReleaseID(), InputURL: b.deps.Playback.InputURL(s.playID), Info: ps.Info, Decision: dec, StartOffset: req.Position, SegmentDuration: req.SegmentDuration, Protocol: proto}
 	var hs core.HLSSession
 	var lease core.EncoderInputLease
 	if remote := b.deps.DistributedHLS; remote != nil && remote.Supports(request) {
@@ -504,7 +504,7 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 	if s.sourcePinned {
 		ps, ok := b.deps.Playback.Session(s.playID)
 		if !ok || ps == nil || sourceRevision(ps) != s.sourceETag {
-			serveSourceGone(protocol, w, r)
+			serveSourceGone(b.policy(protocol), w, r)
 			return
 		}
 	}
@@ -672,7 +672,7 @@ func (b *Broker) serveMaster(w http.ResponseWriter, r *http.Request, s *brokerSe
 		return
 	}
 	master := body.String()
-	if s.public.Protocol == "emby" {
+	if b.policy(s.public.Protocol).MasterMetadata {
 		independent, ok := hs.(core.HLSIndependentSegments)
 		version := 7 // conservative if the selected media format is unavailable
 		if binding, present := b.bindings.Get(s.public.ID); present && binding.Decision.Container == transcode.ContainerMPEGTS {

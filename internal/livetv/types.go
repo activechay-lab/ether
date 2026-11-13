@@ -11,52 +11,14 @@ import (
 
 	"github.com/braedonsaunders/ether/internal/config"
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/livetv/guideprovider"
 	"github.com/braedonsaunders/ether/internal/markers"
 )
 
 const Provider = "tv.plex.providers.epg.xmltv:1"
 
-type BreakPoint struct {
-	AtMS       int64   `json:"atMs"`
-	Source     string  `json:"source"`
-	Confidence float64 `json:"confidence,omitempty"`
-}
-
-type Item struct {
-	BreakAvailableAfterMS int64          `json:"breakAvailableAfterMs,omitempty"`
-	SourceID              string         `json:"sourceId,omitempty"`
-	BreakReleaseID        string         `json:"breakReleaseId,omitempty"`
-	BreakRevision         string         `json:"breakRevision,omitempty"`
-	BreakPoints           []BreakPoint   `json:"breakPoints,omitempty"`
-	BreakPointsMS         []int64        `json:"breakPointsMs,omitempty"`
-	ReelID                string         `json:"reelId,omitempty"`
-	ReelClipID            string         `json:"reelClipId,omitempty"`
-	EpisodeTitle          string         `json:"episodeTitle,omitempty"`
-	ShowTitle             string         `json:"showTitle,omitempty"`
-	Art                   string         `json:"art,omitempty"`
-	Genres                []string       `json:"genres,omitempty"`
-	GUID                  string         `json:"guid,omitempty"`
-	ShowGUID              string         `json:"showGuid,omitempty"`
-	MediaType             string         `json:"mediaType,omitempty"`
-	Premiere              bool           `json:"premiere,omitempty"`
-	Live                  bool           `json:"live,omitempty"`
-	Key                   core.RatingKey `json:"key"`
-	Title                 string         `json:"title"`
-	DurationMS            int64          `json:"durationMs"`
-	Summary               string         `json:"summary,omitempty"`
-	Rating                string         `json:"rating,omitempty"`
-	Thumb                 string         `json:"thumb,omitempty"`
-	// Show metadata keeps episodes in season order inside a shuffle,
-	// marathon or newest-first playout. Zero values are movies and items
-	// saved before weekly scheduling, which stay in their stored order.
-	ShowKey    core.RatingKey `json:"showKey,omitempty"`
-	Season     int            `json:"season,omitempty"`
-	Episode    int            `json:"episode,omitempty"`
-	ReleasedMS int64          `json:"releasedMs,omitempty"`
-	// Slate is "offair" for a guide entry that fills a gap. It is not a
-	// catalogue title and is never stored on a channel.
-	Slate string `json:"slate,omitempty"`
-}
+type BreakPoint = guideprovider.BreakPoint
+type Item = guideprovider.Item
 
 // ProgramSource is one weighted part of a mix. Weight 0 means 1.
 // Watched is "", "watched" or "unwatched" for the whole household.
@@ -432,8 +394,7 @@ type Options struct {
 	}
 	PersonalChanged func(int64)
 	Graphics        core.ChannelGraphics
-	PlexGuideToken  func() string
-	PlexGuideURL    string // test endpoint
+	GuideProvider   guideprovider.Provider
 
 	CanPlay            func(*core.User, bool, time.Time) bool
 	StreamLimit        func(*core.User) int

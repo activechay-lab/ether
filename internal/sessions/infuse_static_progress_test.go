@@ -33,7 +33,7 @@ func TestInfuseStaticStreamProgressReachesWatchState(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key, Type: core.TypeMovie, Title: "Abzurdah"}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 2}, Transcoder: fakeBrokerTranscoder{},
 		Progress: watch, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},
@@ -156,7 +156,7 @@ func TestJellyfinStaticMissingSourceMatchesMissingFile(t *testing.T) {
 			lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 				return &core.Title{Key: key, Type: core.TypeMovie}, nil
 			}
-			broker, err := NewBroker(BrokerDeps{
+			broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 				Events: events, Playback: &failingPrepare{fakePlayback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, err: tc.err},
 				Transcoder: fakeBrokerTranscoder{}, Progress: &fakeProgress{}, ActiveViewer: active,
 				CanPlay: func(*core.Viewer, bool, time.Time) bool { return true }, BitrateLimit: func(*core.Viewer) int { return 0 },
@@ -205,7 +205,7 @@ func TestInfuseStaticStreamOpensWithoutPlaybackInfo(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key, Type: core.TypeMovie, Title: "Sintel"}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Transcoder: fakeBrokerTranscoder{},
 		Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},
@@ -274,7 +274,7 @@ func TestInfuseRemuxPlaybackInfoStillServesStaticStream(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key, Type: core.TypeMovie, Title: "Sintel"}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Transcoder: remuxBrokerTranscoder{},
 		Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},
@@ -350,7 +350,7 @@ func TestInfuseStaticStreamWithoutTokenIsUnauthorized(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key, Type: core.TypeMovie}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Transcoder: fakeBrokerTranscoder{},
 		Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},
@@ -401,7 +401,7 @@ func TestInfuseEstimateAndTranscodeResumeStayPlayable(t *testing.T) {
 	lookup := func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 		return &core.Title{Key: key, Type: core.TypeMovie, Title: "Sintel"}, nil
 	}
-	broker, err := NewBroker(BrokerDeps{
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Events: events, Playback: &fakePlayback{sessions: map[string]*core.PlaySession{}, limit: 1}, Transcoder: transcodeBrokerTranscoder{},
 		Progress: &fakeProgress{}, ActiveViewer: active, CanPlay: func(*core.Viewer, bool, time.Time) bool { return true },
 		BitrateLimit: func(*core.Viewer) int { return 0 }, OnTimeline: func(*core.Viewer, core.RatingKey, time.Duration, time.Duration, string) {},

@@ -1725,14 +1725,14 @@ func rememberedOriginalAudioCurrent(profile core.QualityProfile, stored, current
 }
 
 func rememberedCodecCurrent(rel core.Release, caps core.ClientCaps) bool {
-	if caps.Protocol == "" || caps.Protocol == "plex" || len(caps.VideoCodecs) == 0 {
+	if caps.DeferSourceCodecValidation || len(caps.VideoCodecs) == 0 {
 		return true
 	}
 	return rel.Info.VideoCodec == "" || caps.SupportsVideo(rel.Info.VideoCodec)
 }
 
 func rememberedInfoCodecCurrent(info core.MediaInfo, caps core.ClientCaps) bool {
-	if caps.Protocol == "" || caps.Protocol == "plex" || len(caps.VideoCodecs) == 0 {
+	if caps.DeferSourceCodecValidation || len(caps.VideoCodecs) == 0 {
 		return true
 	}
 	v := info.Video()

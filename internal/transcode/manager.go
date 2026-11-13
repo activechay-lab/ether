@@ -232,6 +232,7 @@ func New(cfg config.Transcode, logger *slog.Logger, opts ...Option) (*Manager, e
 	if m.feat, err = probeFeatures(ctx, m.runner, m.ffmpeg); err != nil {
 		return nil, err
 	}
+	// FFmpeg build identity: detects the patched segment-clock encoder, independent of client frontend.
 	m.feat.jellyfinSegmentClock = strings.Contains(strings.ToLower(m.version), "jellyfin")
 	if !m.feat.hasEncoder("libx264") {
 		m.log.Warn("ffmpeg has no libx264; CPU transcoding unavailable", "ffmpeg", m.ffmpeg)

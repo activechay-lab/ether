@@ -47,7 +47,7 @@ func TestServingRequestWaitsForStalledReader(t *testing.T) {
 	active := func(_ context.Context, id int64) (*core.Viewer, error) { return &core.Viewer{ID: id}, nil }
 	bus := NewEventBus(nil, active)
 	t.Cleanup(bus.Close)
-	broker, err := NewBroker(BrokerDeps{
+	broker, err := NewBroker(BrokerDeps{SurfacePolicy: testSessionPolicy,
 		Lookup: func(_ context.Context, _ *core.Viewer, _ core.Device, key core.RatingKey) (*core.Title, error) {
 			return &core.Title{Key: key}, nil
 		},

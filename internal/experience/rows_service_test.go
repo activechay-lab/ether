@@ -108,10 +108,13 @@ func TestHomeFallbackRunsAfterPolicyAndPreservesPlayback(t *testing.T) {
 		t.Fatal(err)
 	}
 	req := frontend.RowRequest{Viewer: &core.User{ID: 1}, Device: core.Device{ID: "tv"}, Placement: frontend.PlacementHome, Limit: 1}
+	fallback := s.d.HomeFallback
+	s.d.HomeFallback = nil // This surface assembles its own Home.
 	rows, err := s.Rows(ctx, req, "plex")
 	if err != nil || len(rows) != 1 || rows[0].Purpose != frontend.RowNextUp || calls != 0 {
 		t.Fatalf("plex home changed: %+v calls=%d err=%v", rows, calls, err)
 	}
+	s.d.HomeFallback = fallback
 	rows, err = s.Rows(ctx, req, "jellyfin")
 	if err != nil || len(rows) != 2 || rows[0].Purpose != frontend.RowNextUp || rows[1].Purpose != frontend.RowRecentlyAdded || rows[1].Entries[0].Title.Key != core.MovieKey(4) || !rows[1].More || calls != 1 {
 		t.Fatalf("fallback rows=%+v calls=%d err=%v", rows, calls, err)

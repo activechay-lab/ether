@@ -81,7 +81,7 @@ func subscribeWatchRefresh(watch *state.State, refresh func(int64, core.RatingKe
 
 		// Cross-surface explicit state changes previously came through the shared
 		// event publisher; Plex-origin explicit writes do not emit metadata frames.
-		if ev.Origin.Surface != "plex" && (ev.Kind == state.EventScrobble || ev.Kind == state.EventUnscrobble) {
+		if !ev.Origin.SuppressMetadataRefresh && (ev.Kind == state.EventScrobble || ev.Kind == state.EventUnscrobble) {
 			refresh(ev.UserID, ev.Key)
 			return
 		}

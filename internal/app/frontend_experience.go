@@ -137,7 +137,8 @@ func (a *App) configuredLibraries() []experience.Library {
 // newSurfaceExperience builds an explicitly surface-bound service. A shared
 // situation is inserted by surfaceExperience.Rows before ranking and receipt issuance.
 func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.Artwork) (frontend.Experience, error) {
-	if a.spikeLibrary != nil && protocol == "plex" {
+	policy := frontendHostPolicy(protocol)
+	if a.spikeLibrary != nil && policy.SpikeExperience {
 		return a.spikeLibrary.Experience(), nil
 	}
 	if a.users == nil || a.catalog == nil || a.safety == nil || a.state == nil || a.personalize == nil || a.favorites == nil || a.playlists == nil || a.db == nil {
@@ -197,6 +198,9 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 		return nil, err
 	}
 	rows, err := experience.NewRowsService(experience.RowServiceDeps{Source: source, Visibility: rowVis, Receipts: receipts, RankedSource: true, HomeFallback: func(ctx context.Context, req frontend.RowRequest) ([]frontend.Row, error) {
+		if protocol == "plex" {
+			return nil, nil
+		}
 		return a.experienceHomeFallback(ctx, req, libs, rowVis)
 	}, Active: func(ctx context.Context, u *core.User) bool {
 		v, e := a.users.ActiveUser(ctx, u.ID)
@@ -269,7 +273,9 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			return stepAside.AdjustUnplayedCounts(ctx, userID, keys, counts)
 		}
 	}
-	deps := experience.ServiceDeps{BeginPeopleRead: a.beginPeopleRead, NotInterestedSource: func(ctx context.Context, u *core.User) ([]frontend.NotInterestedEntry, error) {
+	deps := experience.ServiceDeps{BuiltinNative: func(mt core.MediaType) string { return builtinNative(mt, protocol) }, LibraryPresentation: func(p core.Presentations, mt core.MediaType) (core.MediaType, string, bool) {
+		return presentLibraryForProtocol(p, protocol, mt)
+	}, BeginPeopleRead: a.beginPeopleRead, NotInterestedSource: func(ctx context.Context, u *core.User) ([]frontend.NotInterestedEntry, error) {
 		entries, _, err := a.notInterested.Snapshot(ctx, u)
 		if err != nil {
 			return nil, err
@@ -359,8 +365,8 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			hasResumed     bool
 		)
 		if a.playback != nil {
-			caps := core.ClientCaps{Protocol: protocol, Product: device.Product, Platform: device.Platform, DeviceName: device.DeviceName, ClientID: device.ID, Version: device.Version}
-			if protocol != "plex" {
+			caps := core.ClientCaps{PreserveEmptyVideoCodecs: policy.NativePlaybackCapabilities, Protocol: protocol, Product: device.Product, Platform: device.Platform, DeviceName: device.DeviceName, ClientID: device.ID, Version: device.Version}
+			if !policy.NativePlaybackCapabilities {
 				caps = playbackFloor(caps, overrides)
 			}
 			if a.cfg != nil {
@@ -384,8 +390,8 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 			result.TracksEstimated = info.Estimated
 		}
 		if a.resolver != nil {
-			caps := core.ClientCaps{Protocol: protocol, Product: device.Product, Platform: device.Platform, DeviceName: device.DeviceName, ClientID: device.ID, Version: device.Version}
-			if protocol != "plex" {
+			caps := core.ClientCaps{PreserveEmptyVideoCodecs: policy.NativePlaybackCapabilities, Protocol: protocol, Product: device.Product, Platform: device.Platform, DeviceName: device.DeviceName, ClientID: device.ID, Version: device.Version}
+			if !policy.NativePlaybackCapabilities {
 				caps = playbackFloor(caps, overrides)
 			}
 			if a.cfg != nil {
@@ -527,6 +533,7 @@ func (a *App) newSurfaceExperience(protocol core.Protocol, artwork ...frontend.A
 	if a.hostResources != nil {
 		deps.Resources = a.hostResources
 	}
+	// Wire the account metadata provider through the shared library interfaces.
 	deps.LibraryGUIDsFunc = func() frontend.LibraryGUIDs {
 		a.plexMetaMu.Lock()
 		defer a.plexMetaMu.Unlock()

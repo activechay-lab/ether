@@ -76,7 +76,7 @@ func TestPartitionedGenerationCannotPublishRenewOrReleaseReplacement(t *testing.
 	guards := fixtureGuards(t, sourceID, workerID)
 	endpoints := map[nodewire.Identity]string{}
 	eligible := func(context.Context, nodewire.Identity, config.NodeRole) error { return nil }
-	base := Options{DB: db, Placement: ledger, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true}
+	base := Options{SurfacePolicy: testSessionPolicy, Delivery: testDeliveryPolicy(), DB: db, Placement: ledger, Endpoint: func(_ context.Context, id nodewire.Identity) (string, error) { return endpoints[id], nil }, Eligible: eligible, MemberRole: eligible, Capacity: 16, ClockBoundKnown: true}
 	opts := base
 	opts.Self = sourceID
 	opts.Guard = guards[0]
