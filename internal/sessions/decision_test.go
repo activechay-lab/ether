@@ -113,22 +113,28 @@ func TestDecisionForcedRemuxHonorsAudioTarget(t *testing.T) {
 		name      string
 		target    []string
 		prefer    bool
+		verified  bool
 		wantCalls int
 		wantKind  core.DecisionKind
 	}{
-		{"AAC target on forced stream", []string{"aac"}, true, 2, core.DecisionTranscode},
-		{"surround target on forced stream", []string{"aac", "eac3"}, true, 1, core.DecisionRemux},
-		{"no target", nil, true, 1, core.DecisionRemux},
-		{"direct play exemption", []string{"aac"}, false, 1, core.DecisionDirectPlay},
+		{"AAC target on forced stream", []string{"aac"}, true, true, 2, core.DecisionTranscode},
+		{"surround target on forced stream", []string{"aac", "eac3"}, true, true, 1, core.DecisionRemux},
+		{"no target", nil, true, true, 1, core.DecisionRemux},
+		{"direct play exemption", []string{"aac"}, false, true, 1, core.DecisionDirectPlay},
+		{"unverified health without preference remuxes", []string{"aac", "eac3"}, false, false, 1, core.DecisionRemux},
+		{"unverified health preserves forced AAC target", []string{"aac"}, true, false, 2, core.DecisionTranscode},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ps := &core.PlaySession{Resolution: &core.Resolution{Release: core.Release{ID: "usenet:fixture"}}, Info: core.MediaInfo{Streams: []core.StreamInfo{{Type: "audio", Index: 7, Codec: "eac3"}}}}
+			ps := &core.PlaySession{Resolution: &core.Resolution{HealthVerified: tc.verified, Release: core.Release{ID: "usenet:fixture"}}, Info: core.MediaInfo{Streams: []core.StreamInfo{{Type: "audio", Index: 7, Codec: "eac3"}}}}
 			transcoder := &targetDecisionTranscoder{}
 			got, err := Decide(nil, transcoder, DecisionRequest{Session: ps, Caps: core.ClientCaps{TranscodeAudioCodecs: tc.target}, Options: core.DecideOptions{DirectPlay: true, DirectStream: true, AudioStream: 7}, PreferRemux: tc.prefer, Protocol: core.ProtocolDASH})
 			if err != nil || got.Kind != tc.wantKind || len(transcoder.options) != tc.wantCalls {
 				t.Fatalf("decision %+v error %v calls %v", got, err, transcoder.options)
 			}
-			if tc.wantCalls == 2 && (transcoder.options[1].DirectPlay || !transcoder.options[1].DirectStream || transcoder.options[1].AudioStream != 7 || got.AudioCodec != "aac" || !got.VideoCopy) {
+			if tc.wantKind == core.DecisionRemux && (!got.VideoCopy || !got.AudioCopy) {
+				t.Fatalf("remux must copy both streams: %+v", got)
+			}
+			if tc.wantCalls == 2 && (transcoder.options[1].DirectPlay || !transcoder.options[1].DirectStream || transcoder.options[1].AudioStream != 7 || got.AudioCodec != "aac" || got.AudioCopy || !got.VideoCopy) {
 				t.Fatalf("target reconsider lost selected source facts: %+v %+v", got, transcoder.options)
 			}
 		})
