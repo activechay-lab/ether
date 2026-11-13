@@ -59,3 +59,29 @@ func TestNamesakesArticleAndYearWindow(t *testing.T) {
 		}
 	}
 }
+
+func TestSeriesNamesakeUsesDifferentYearAndSameType(t *testing.T) {
+	c, err := New(store.OpenTest(t), nil, config.Catalog{}, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedNamesakeTitle(t, c, core.ShowKey(1), core.TypeShow, "Runner", 1984)
+	seedNamesakeTitle(t, c, core.ShowKey(2), core.TypeShow, "The Runner", 2024)
+	seedNamesakeTitle(t, c, core.ShowKey(3), core.TypeShow, "Firefly", 2002)
+	seedNamesakeTitle(t, c, core.MovieKey(4), core.TypeMovie, "Firefly", 2024)
+	for _, tc := range []struct {
+		key   core.RatingKey
+		title string
+		year  int
+		want  bool
+	}{
+		{core.ShowKey(1), "Runner", 1984, true},
+		{core.ShowKey(2), "The Runner", 2024, true},
+		{core.ShowKey(3), "Firefly", 2002, false},
+	} {
+		got, err := c.SeriesNamesake(context.Background(), tc.key, tc.title, tc.year)
+		if err != nil || got != tc.want {
+			t.Fatalf("%s: got %v, %v; want %v", tc.title, got, err, tc.want)
+		}
+	}
+}

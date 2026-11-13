@@ -30,3 +30,10 @@ func (a *App) seriesYearConflict(ctx context.Context, show core.RatingKey, title
 	}
 	return false, nil
 }
+
+func (a *App) seriesNamesake(ctx context.Context, show core.RatingKey, title string, year int) (bool, error) {
+	if a.catalog == nil {
+		return false, errors.New("catalogue unavailable")
+	}
+	return a.catalog.SeriesNamesake(ctx, show, title, year)
+}

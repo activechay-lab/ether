@@ -103,3 +103,34 @@ func (s *Service) seriesYearAccepted(show core.RatingKey, year int) bool {
 func seriesYearGuessed(rel core.Release, sreq core.SearchRequest) bool {
 	return sreq.Type == core.TypeEpisode && !releaseparse.SeriesYearMatches(releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year), sreq.Year)
 }
+
+// hasSeriesNamesake asks only on use and caches bounded catalogue answers.
+func (s *Service) hasSeriesNamesake(ctx context.Context, t *core.Title, req core.SearchRequest) bool {
+	if s.seriesNamesake == nil || t == nil {
+		return false
+	}
+	key := "namesake/" + seriesYearKey(t.ShowKey, req.Year) + "/" + req.Title
+	now := s.now()
+	s.years.mu.Lock()
+	v, ok := s.years.seen[key]
+	s.years.mu.Unlock()
+	if ok && now.Sub(v.at) < seriesYearTTL {
+		return v.conflict
+	}
+	lookup, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	found, err := s.seriesNamesake(lookup, t.ShowKey, req.Title, req.Year)
+	if err != nil {
+		return false
+	}
+	s.years.mu.Lock()
+	if s.years.seen == nil {
+		s.years.seen = map[string]seriesYearVerdict{}
+	}
+	if len(s.years.seen) >= 4096 {
+		clear(s.years.seen)
+	}
+	s.years.seen[key] = seriesYearVerdict{conflict: found, at: now}
+	s.years.mu.Unlock()
+	return found
+}

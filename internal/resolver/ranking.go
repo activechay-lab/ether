@@ -93,6 +93,9 @@ func compareCandidates(a, b candidate) bool {
 		return x.size > y.size
 	}
 	// Tie-breaks.
+	if a.identityConflict != b.identityConflict {
+		return !a.identityConflict
+	}
 	if a.verified != b.verified {
 		return a.verified
 	}

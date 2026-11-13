@@ -273,8 +273,8 @@ func TestOwnerRouterUsesRealSettingsAndViewer(t *testing.T) {
 func TestRouterItemsFailureIs500(t *testing.T) {
 	s, _, _, _, _, _ := setup(t)
 	s.o.Users = func(context.Context) ([]core.User, error) { return []core.User{{ID: 1}}, nil }
-	// Make Sync and Check succeed trivially so only the Items read can fail:
-	// no upstream sources for Sync, and Check returns at once with no resolver.
+	// Make Sync succeed trivially so only the Items read can fail.
+	// Check is now a background job and rejects monitoring without a resolver.
 	s.o.Trakt, s.o.Resolver = nil, nil
 	if _, e := s.db.ExecContext(context.Background(), `DROP TABLE watchlist_items`); e != nil {
 		t.Fatal(e)
@@ -282,13 +282,17 @@ func TestRouterItemsFailureIs500(t *testing.T) {
 	for _, tc := range []struct{ method, path string }{
 		{"GET", "/users/1/"},
 		{"POST", "/users/1/sync"},
-		{"POST", "/users/1/check"},
 	} {
 		w := httptest.NewRecorder()
 		s.Router().ServeHTTP(w, httptest.NewRequest(tc.method, tc.path, nil))
 		if w.Code != 500 {
 			t.Fatalf("%s %s: got %d (%s), want 500", tc.method, tc.path, w.Code, w.Body.String())
 		}
+	}
+	w := httptest.NewRecorder()
+	s.Router().ServeHTTP(w, httptest.NewRequest("POST", "/users/1/check", nil))
+	if w.Code != http.StatusConflict {
+		t.Fatalf("disabled check: got %d (%s), want 409", w.Code, w.Body.String())
 	}
 }
 
