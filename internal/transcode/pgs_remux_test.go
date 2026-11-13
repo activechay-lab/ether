@@ -58,7 +58,7 @@ func TestRealPGSRemux(t *testing.T) {
 		s.InitName = "header.mkv"
 		s.Protocol = core.ProtocolHLS
 		a := buildArgs(s)
-		if argValue(a, "-probesize") != "262144" || argValue(a, "-c:s") != "copy" {
+		if argValue(a, "-probesize") != "5000000" || argValue(a, "-c:s") != "copy" { // normal analysis since b4356a62e
 			t.Fatalf("args: %v", a)
 		}
 		out, err := mediaproc.CommandContext(t.Context(), 30*time.Second, e.ffmpeg, a...).CombinedOutput()
