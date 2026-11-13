@@ -32,7 +32,7 @@ export function TitlesComeFrom({
   const attached = registry.data?.filter((source) => ids.includes(source.id)) ?? [];
   const manageHref =
     ids.length === 1
-      ? library.source === "builtin"
+      ? library.source === "builtin" || attached[0]?.group === "builtin"
         ? "/services/tmdb"
         : attached[0]?.pluginId
           ? `/plugins/installed?plugin=${encodeURIComponent(attached[0].pluginId)}&tab=setup`
@@ -40,7 +40,7 @@ export function TitlesComeFrom({
       : "/services";
   const manageLabel =
     ids.length === 1
-      ? library.source === "builtin"
+      ? library.source === "builtin" || attached[0]?.group === "builtin"
         ? t("Manage TMDB")
         : attached[0]
           ? t("Manage {app}", { app: attached[0].name })
