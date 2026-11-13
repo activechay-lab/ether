@@ -394,7 +394,10 @@ const detailWarmWaitBudget = 1500 * time.Millisecond
 // pre-play detail/queue item and do not re-fetch metadata once playback starts.
 func startDetailPageWait(pr *Request) {
 	if plexMobileOrTVBedrockClient(pr) {
-		pr.detailWaitUntil = time.Now().Add(detailWarmWaitBudget)
+		// Android builds its subtitle picker from this response; a cold
+		// probe needs the measured four-second allowance. Persisted probes
+		// return before any wait in warmDetail.
+		pr.detailWaitUntil = time.Now().Add(4 * time.Second)
 	} else if pr != nil && (strings.EqualFold(pr.Platform, "tvOS") || strings.EqualFold(pr.Product, "Plex for Apple TV")) {
 		pr.detailWaitUntil = time.Now().Add(250 * time.Millisecond)
 	}
