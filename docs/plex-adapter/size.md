@@ -6,17 +6,17 @@ Nested buckets must not be added to their parents.
 
 | Package tree | Production Go lines |
 | --- | ---: |
-| `internal/frontends/plex` | 39,453 |
+| `internal/frontends/plex` | 39,517 |
 | `internal/experience` | 14,852 |
 | `internal/sessions` | 16,173 |
 | `internal/hlsplay` | 865 |
 | `internal/trackprefs` | 1,354 |
 | `internal/livetv` | 39,535 |
-| `internal/watchlist` | 3,338 |
-| `internal/playback` | 16,238 |
-| `internal/transcode` | 31,973 |
+| `internal/watchlist` | 3,340 |
+| `internal/playback` | 16,263 |
+| `internal/transcode` | 31,967 |
 | `internal/artwork` | 5,197 |
-| `internal/resolver` | 16,779 |
+| `internal/resolver` | 16,845 |
 | `internal/clusterplayback` | 10,096 |
 
 The old `internal/plex` path is gone. Plex wire rendering now lives under
@@ -55,3 +55,11 @@ The recorded-reference package is `internal/conform` (formerly
 parity tests live in `internal/frontends/plex`; `.github/workflows/plex-parity.yml`
 defines the wider gate. Real-device playback, resume, remembered-release
 selection and poster/thumb presentation remain coordinator verification items.
+
+Combined gate: `65f0880b6` passed with `CGO_ENABLED=0` and `-p 2`:
+`go build ./...`, `go vet ./...`, and all package trees named in the
+combine brief (frontends, conform, app, sessions, clusterplayback, playback,
+livetv, experience, watchlist, trackprefs, hlsplay, artwork, resolver, spike).
+Golden fixtures are unchanged. The combined fixes advance the migration
+candidate assertion to sessions/10 and explicitly declare codec deferral in
+the fake Plex Web playback capabilities.
