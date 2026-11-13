@@ -12,7 +12,7 @@ import (
 // identity. Cover search and the detail it opens, with and without a verified
 // provider slug; cached overlays for an obsolete GUID must not supply one.
 func TestSearchNamesakeIdentity(t *testing.T) {
-	f, _ := plexMetaFixture(t, true, &plexMetaRoundTrip{body: `{}`})
+	f, meta := plexMetaFixture(t, true, &plexMetaRoundTrip{body: `{}`})
 	years := []int{1999, 2017}
 	keys := []core.RatingKey{core.MovieKey(564), core.MovieKey(282035)}
 	guids := []string{"plex://movie/5d7768264de0ee001fcc87e1", "plex://movie/5d776aff7a53e9001e71650e"}
@@ -26,6 +26,10 @@ func TestSearchNamesakeIdentity(t *testing.T) {
 		}
 	}
 	for _, mode := range []string{"missing", "verified", "obsolete"} {
+		// Finish fetches scheduled by the previous pass before replacing its
+		// rows. The empty fake provider response must not race these fixtures
+		// and overwrite a verified slug after it has been inserted.
+		meta.Wait()
 		if mode != "missing" {
 			for i, k := range keys {
 				_, err := f.srv.runtimeDB().Exec(`DELETE FROM plexmeta_titles WHERE rating_key=?`, int64(k))
