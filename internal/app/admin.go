@@ -236,6 +236,7 @@ func (a *App) buildAdmin() http.Handler {
 		},
 		Images:          a.images,
 		TitlePosters:    a.titlePosters(),
+		OwnerArtwork:    a.artwork,
 		PlexWatch:       a.plexWatchAPI(),
 		Trakt:           a.traktAPI(),
 		PlexServers:     a.plexServersAPI(),

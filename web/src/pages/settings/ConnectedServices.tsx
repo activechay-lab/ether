@@ -27,6 +27,7 @@ import { localized, t, tx } from "../../i18n";
 import { api, apiFetch, ApiError, type TestFn } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
 import type { EtherConfig } from "../../lib/types";
+import { OwnerPosters } from "./OwnerPosters";
 import { PosterAccounts } from "./PosterAccounts";
 import { RatingSources, type RatingSettings } from "../metadata/Ratings";
 import { SimklSettings } from "./SimklIntegration";
@@ -1233,6 +1234,7 @@ function ServiceOverview({
       <>
         <IntegrationGroup title={t("Artwork and ratings")}>
           {posterCards}
+          <OwnerPosters locked={locked} />
           <IntegrationAppCard
             identity={{ id: "ratings", name: t("OMDb and MDBList") }}
             description={t("IMDb, Rotten Tomatoes and other rating badges.")}
