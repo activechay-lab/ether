@@ -653,6 +653,80 @@ describe("Live TV source sign-in", () => {
     });
   });
 
+  it("saves an uploaded-playlist source without re-uploading its file", async () => {
+    const calls = backend([], (url, init) => {
+      if (url.endsWith("/livetv/sources") && (init?.method ?? "GET") === "GET")
+        return [
+          {
+            id: "u1",
+            name: "Uploaded list",
+            updatedAt: "2026-10-19T00:00:00Z",
+            hasPlaylist: true,
+            hasGuide: true,
+            channelCount: 98,
+          },
+        ];
+      return undefined;
+    });
+    renderLiveTV("/livetv?source=u1");
+    expect(await screen.findByDisplayValue("Uploaded list", {}, WAIT)).toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Save and re-import" });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(sent(calls, "PUT", /\/livetv\/sources\/u1(\?|$)/)).toHaveLength(1));
+    // GET never returns inline uploads; the server keeps the stored ones when the body has none.
+    expect(body(sent(calls, "PUT", /\/livetv\/sources\/u1(\?|$)/)[0])).toMatchObject({
+      playlist: "",
+      playlistUrl: "",
+      guide: "",
+      guideUrl: "",
+    });
+  });
+
+  it("still needs a playlist when a linked source's URL is cleared", async () => {
+    backend([], (url, init) => {
+      if (url.endsWith("/livetv/sources") && (init?.method ?? "GET") === "GET")
+        return [
+          {
+            id: "l1",
+            name: "Linked list",
+            playlistUrl: "https://iptv.example/list.m3u",
+            updatedAt: "2026-10-19T00:00:00Z",
+            hasPlaylist: true,
+          },
+        ];
+      return undefined;
+    });
+    renderLiveTV("/livetv?source=l1");
+    expect(await screen.findByDisplayValue("Linked list", {}, WAIT)).toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Save and re-import" });
+    expect(save).toBeEnabled();
+    fireEvent.change(screen.getByLabelText("M3U playlist"), { target: { value: "" } });
+    expect(save).toBeDisabled();
+  });
+
+  it("saves an uploaded-XMLTV guide-only source without re-uploading its file", async () => {
+    const calls = backend([], (url, init) => {
+      if (url.endsWith("/livetv/sources") && (init?.method ?? "GET") === "GET")
+        return [
+          {
+            id: "g1",
+            name: "Uploaded guide",
+            updatedAt: "2026-10-19T00:00:00Z",
+            hasPlaylist: false,
+            hasGuide: true,
+          },
+        ];
+      return undefined;
+    });
+    renderLiveTV("/livetv?source=g1");
+    expect(await screen.findByDisplayValue("Uploaded guide", {}, WAIT)).toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Save and re-import" });
+    expect(save).toBeEnabled();
+    fireEvent.click(save);
+    await waitFor(() => expect(sent(calls, "PUT", /\/livetv\/sources\/g1(\?|$)/)).toHaveLength(1));
+  });
+
   it.each([true, false])(
     "edits an Xtream connection with live TV %s and preserves its login",
     async (useLiveTV) => {
