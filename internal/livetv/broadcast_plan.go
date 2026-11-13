@@ -73,12 +73,17 @@ func (p *scheduleBroadcastPlanner) startPlanner(parent context.Context) {
 	p.workerCtx, p.workerCancel = context.WithCancel(parent)
 	p.requests = make(chan time.Time, 1)
 	p.workerDone = make(chan struct{})
-	// Seed audience/rating identity before the first neutral startup frame.
-	// These are already materialized time slices; no schedule or availability
-	// expansion runs during a tune, even for a large/personal recipe.
+	// Seed audience/rating identity and the bounded opening broadcast pod
+	// before the encoder can publish its first frame.
 	now := time.Now()
 	c := p.s.personalChannel(p.workerCtx, p.channel, &p.user)
-	p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(12*time.Minute))
+	if c.Personal != nil {
+		p.window, _ = p.s.programmes(p.workerCtx, c, now, now.Add(12*time.Minute))
+	} else {
+		// Seed the actual broadcast pod, including title moments, before the
+		// encoder can publish. Guide rows alone omit these opening elements.
+		p.window = p.s.broadcastSchedule(p.workerCtx, p.s.plannedChannel(p.s.graphicsChannel(c)), now, now.Add(12*time.Minute), true)
+	}
 	go p.planWorker()
 }
 func (p *scheduleBroadcastPlanner) closePlanner() { p.workerCancel(); <-p.workerDone }
