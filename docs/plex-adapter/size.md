@@ -1,23 +1,23 @@
 # Prism extraction status
 
-Snapshot on `prism/finish`, based on `origin/integration/0310`. Counts include
+Snapshot on `prism/combined`: all five Prism slices plus `w0310/integration-local`. Counts include
 comments and blank lines in non-test Go files, recursively within each bucket.
 Nested buckets must not be added to their parents.
 
 | Package tree | Production Go lines |
 | --- | ---: |
-| `internal/frontends/plex` | 38,789 |
-| `internal/experience` | 14,947 |
-| `internal/sessions` | 16,131 |
-| `internal/hlsplay` | 1,003 |
-| `internal/trackprefs` | 1,353 |
-| `internal/livetv` | 39,742 |
-| `internal/watchlist` | 3,175 |
-| `internal/playback` | 16,181 |
-| `internal/transcode` | 31,972 |
-| `internal/artwork` | 4,919 |
-| `internal/resolver` | 16,769 |
-| `internal/clusterplayback` | 10,204 |
+| `internal/frontends/plex` | 39,453 |
+| `internal/experience` | 14,852 |
+| `internal/sessions` | 16,173 |
+| `internal/hlsplay` | 865 |
+| `internal/trackprefs` | 1,354 |
+| `internal/livetv` | 39,535 |
+| `internal/watchlist` | 3,338 |
+| `internal/playback` | 16,238 |
+| `internal/transcode` | 31,973 |
+| `internal/artwork` | 5,197 |
+| `internal/resolver` | 16,779 |
+| `internal/clusterplayback` | 10,096 |
 
 The old `internal/plex` path is gone. Plex wire rendering now lives under
 `internal/frontends/plex`. This relocation does not by itself finish Prism.
@@ -32,18 +32,21 @@ The old `internal/plex` path is gone. Plex wire rendering now lives under
 - Artwork receives a landscape-thumb flag from application wiring, rather than
   identifying the frontend inside the artwork service.
 
-## Remaining work
+## Combined extraction and remaining work
 
-Prism is **not finished**. Session admission, stream bindings, surface guards,
-cluster markers and persistence still contain protocol-specific behavior.
-HLS laboratory playback still owns protocol request vocabulary and selection.
-Track preferences, live TV guide/publication, plugin library projections,
-watchlist providers, cluster playback forwarding and other playback/transcode
-branches still need separation behind explicit contracts. Protocol names in
-application wiring, configuration and listener administration are intentional.
+The combined slices move session delivery policies into frontend adapters, HLS lab
+wire control into frontend playerlab packages, guide wire handling into the Plex
+adapter, and host/experience choices behind explicit policies. All additive
+ClientCaps fields from the live-TV and experience slices are retained.
 
-Historical table names in migrations also remain. They must be distinguished
-from runtime protocol decisions; renaming a table alone is not extraction.
+Prism is **not finished**. The full remaining-name inventory and justifications
+are in [remaining-names.md](remaining-names.md). Shared playback still branches on
+protocol for buffering reports, cluster handling and Plex part MIME/headers;
+identity still branches for resolution/image grants; watch-party command selection
+and state timeline handling still contain frontend behavior. Application wiring
+also retains several behavior choices. These are remaining extraction work, not
+justified away as identity strings. Historical migrations, account integrations,
+configuration keys and conformance tooling are distinguished in the inventory.
 
 ## Verification
 
