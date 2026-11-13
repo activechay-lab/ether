@@ -486,6 +486,18 @@ func (s *Session) finish(r *run) {
 		s.decision.Enhancement.State = "fallback"
 		s.decision.Enhancement.Reason = "native VSR input/process failed"
 	}
+	// A DASH hardware graph can fail before writing its first fragment with
+	// driver-specific text, or a missing hardware filter. Try software once
+	// before filter classification can terminate the session. Preserve the
+	// segment number; forceCPU also keeps seeks and later runs on software.
+	if s.isDASH() && r.hw && r.produced == 0 && !s.forceCPU && !r.stalled && !s.inputFailed {
+		s.forceCPU = true
+		log.Warn("hardware encoder failed; falling back to CPU", "hwaccel", r.spec.Accel.Name, "segment", r.startSeg)
+		if retryErr := s.startRunForLocked(r.startSeg, r.spec.BigProbe, "hardware startup fallback"); retryErr != nil {
+			s.failErr = retryErr
+		}
+		return
+	}
 	if r.produced == 0 {
 		if name := missingFilter(stderr); name != "" {
 			if s.tryNextGraphLocked(r, name) {

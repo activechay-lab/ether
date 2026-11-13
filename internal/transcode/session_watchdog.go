@@ -18,6 +18,25 @@ type runWatchdog struct {
 func (w *runWatchdog) check(s *Session, r *run) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// Reserve half the request budget for a software retry. Progress frames
+	// alone do not satisfy DASH startup: a driver may advance forever without
+	// publishing a playable fragment. This applies only to the active,
+	// unpaused hardware run and is permanently bounded by forceCPU.
+	budget := min(s.m.opts.manifestWait, s.m.opts.segmentTimeout) / 2
+	if s.isDASH() && !s.liveInput && !s.closed && s.cur == r && !r.finished && !r.stopped && !r.stalled && !r.paused && r.hw && !s.forceCPU && !s.inputFailed && r.produced == 0 && budget > 0 && time.Since(r.started) >= budget {
+		select {
+		case <-r.proc.Done():
+			return
+		default:
+		}
+		s.forceCPU = true
+		r.stalled = true
+		err := fmt.Errorf("transcode: hardware DASH startup exceeded %s", budget)
+		s.log.Warn("hardware encoder failed; falling back to CPU", "run", r.seq, "segment", r.startSeg)
+		r.proc = failedProc{Process: r.proc, err: err}
+		r.proc.Stop()
+		return
+	}
 	timeout := s.m.opts.stallTimeout
 	if timeout <= 0 || s.liveInput || s.closed || s.cur != r || r.finished || r.stopped || r.stalled {
 		return
