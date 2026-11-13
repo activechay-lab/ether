@@ -1,6 +1,6 @@
 import { t } from "../../i18n";
 import { formatDateTime } from "../../lib/format";
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type FormEvent } from "react";
 import {
   Alert,
   AlertDescription,
@@ -52,10 +52,14 @@ export default function SignInMethods({
   token,
   owner = false,
   showInvite = owner,
+  beforeDevices,
+  quickConnect,
 }: {
   base: string;
   token: string;
   owner?: boolean;
+  beforeDevices?: ReactNode;
+  quickConnect?: ReactNode;
   /** Invite links are for adding a viewer. The owner's own account page leaves this off. */
   showInvite?: boolean;
 }) {
@@ -254,6 +258,7 @@ export default function SignInMethods({
           </div>
         )}
       </SettingsSection>
+      {quickConnect}
       {!owner ? (
         <form onSubmit={update}>
           <SettingsSection
@@ -323,6 +328,7 @@ export default function SignInMethods({
           )}
         </SettingsSection>
       ) : null}
+      {beforeDevices}
       <SettingsSection
         title={t("Devices")}
         description={t("Phones, TVs and browsers that stay signed in.")}
