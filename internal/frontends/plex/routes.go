@@ -107,9 +107,16 @@ func (s *Server) routes() chi.Router {
 	r.Post("/library/metadata/{key}/subtitles", s.handleSubtitleUpload)
 	for _, leaf := range []string{"posters", "arts", "clearLogos", "themes"} {
 		get("/library/metadata/{key}/"+leaf, s.handlePlaylistArtworkCandidates)
-		r.Post("/library/metadata/{key}/"+leaf, s.handlePlaylistMetadataRefusal)
-		r.Put("/library/metadata/{key}/"+leaf, s.handlePlaylistMetadataRefusal)
+		if leaf == "posters" || leaf == "arts" {
+			r.Post("/library/metadata/{key}/"+leaf, s.ownerOnly(s.handleOwnerArtwork))
+			r.Put("/library/metadata/{key}/"+leaf, s.ownerOnly(s.handleOwnerArtwork))
+		} else {
+			r.Post("/library/metadata/{key}/"+leaf, s.handlePlaylistMetadataRefusal)
+			r.Put("/library/metadata/{key}/"+leaf, s.handlePlaylistMetadataRefusal)
+		}
 	}
+	r.Put("/library/metadata/{key}/poster", s.ownerOnly(s.handleOwnerArtwork))
+	r.Put("/library/metadata/{key}/art", s.ownerOnly(s.handleOwnerArtwork))
 	get("/library/metadata/{key}/person/{kind}/{identity}", s.handlePersonImage)
 	get("/library/metadata/{key}/{element}", s.handleImage)
 	get("/library/metadata/{key}/{element}/{ts}", s.handleImage)

@@ -19,6 +19,9 @@ import (
 
 // Source has no protocol server or protocol wire model dependencies.
 type Source struct {
+	OwnerDir         string
+	AssetFolder      func() string
+	Assets           *artwork.LocalAssets
 	LandscapeThumb   bool
 	Catalog          core.StoredTitleLookup
 	CollectionDevice string
@@ -131,6 +134,7 @@ func discoveryIdentity(key core.RatingKey, version, kind, lang string) string {
 
 type frontendArtworkEntry struct {
 	image                         frontend.Image
+	ownerKind                     string
 	element, personKind, personID string
 	subject                       string
 	discoveryKind                 string
@@ -279,6 +283,14 @@ func (a Source) entries(ctx context.Context, req frontend.ArtworkRequest) ([]fro
 	for _, item := range []struct{ kind, element string }{{frontend.ImagePoster, "poster"}, {frontend.ImageThumb, "thumb"}, {frontend.ImageBackdrop, "art"}, {frontend.ImageLogo, "logo"}, {frontend.ImageBanner, "banner"}} {
 		if !frontend.ArtworkKindWanted(ctx, item.kind) {
 			// A page signer seals only its wanted kinds.
+			continue
+		}
+		ownerKind := item.kind
+		if ownerKind == frontend.ImageThumb {
+			ownerKind = frontend.ImagePoster
+		}
+		if _, stamp := a.ownerImage(ctx, req.Item, ownerKind); stamp != "" {
+			add(item.kind, stamp, frontendArtworkEntry{ownerKind: ownerKind})
 			continue
 		}
 		if a.LandscapeThumb && item.kind == frontend.ImageThumb {

@@ -65,6 +65,7 @@ export function normalizePosters(value?: Posters | null): Posters {
     return {
       ...emptyPoster,
       version: 1,
+      assetFolder: p.assetFolder,
       source: p.enabled ? p.source : "tmdb",
       accounts: p.enabled ? { [p.source]: p } : {},
     };
