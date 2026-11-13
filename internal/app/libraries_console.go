@@ -127,6 +127,8 @@ func (c *librariesConsole) decorate(ctx context.Context, lib core.Library) libra
 		if items, _, err := c.services(); err == nil && items != nil {
 			if rec, err := items.GetKindByLibrary(ctx, lib.ID); err == nil {
 				decl := rec.Decl
+				decl.Label = c.catalogueLabel(ctx, lib.PluginID, decl.Label, lib.Name)
+				decl.Library.Name = c.catalogueLabel(ctx, lib.PluginID, decl.Library.Name, lib.Name)
 				dto.Kind = &decl
 				if tally, err := items.LibraryTally(ctx, lib.ID); err == nil {
 					n := 0
@@ -209,6 +211,7 @@ func libraryScopeFilter(lib core.Library, req core.Filter) core.Filter {
 			// Exactly the collection's titles: a SQL semi-join, so the
 			// page reads one statement whatever the collection's size.
 			f.CollectionMembers = lib.CollectionID
+			f.CatalogueSources = lib.Sources
 		}
 		if f.RuleVisibility != "" {
 			f.ApplyCanonicalInPreview = true
@@ -262,8 +265,9 @@ func (c *librariesConsole) handler() http.Handler {
 	})
 	mux.HandleFunc("POST /{$}", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Name   string      `json:"name"`
-			Filter core.Filter `json:"filter"`
+			Sources []string    `json:"sources"`
+			Name    string      `json:"name"`
+			Filter  core.Filter `json:"filter"`
 			// A collection library instead of a filter library: the id of
 			// the owner collection whose titles it shows, and the type it
 			// is browsed as.
@@ -291,6 +295,18 @@ func (c *librariesConsole) handler() http.Handler {
 			libError(w, libErrStatus(err), "Could not create the library")
 			return
 		}
+		if len(body.Sources) > 0 {
+			if err = c.app.validateCatalogueSources(r.Context(), lib, body.Sources); err != nil {
+				_ = c.app.libraries.Delete(r.Context(), lib.ID)
+				libError(w, 400, err.Error())
+				return
+			}
+			if err = c.app.libraries.SetSources(r.Context(), lib.ID, body.Sources); err != nil {
+				libError(w, 500, "Could not save sources")
+				return
+			}
+			lib, _ = c.app.libraries.Get(r.Context(), lib.ID)
+		}
 		libJSON(w, http.StatusCreated, c.decorate(r.Context(), lib))
 	})
 	mux.HandleFunc("GET /{id}", func(w http.ResponseWriter, r *http.Request) {
@@ -306,6 +322,8 @@ func (c *librariesConsole) handler() http.Handler {
 			return
 		}
 		var body struct {
+			CollectionID      *int64                   `json:"collectionId"`
+			Sources           *[]string                `json:"sources"`
 			Name              *string                  `json:"name"`
 			Hidden            *bool                    `json:"hidden"`
 			Sort              *int                     `json:"sort"`
@@ -318,15 +336,30 @@ func (c *librariesConsole) handler() http.Handler {
 		if !decodeLibBody(w, r, &body) {
 			return
 		}
-		if body.Filter != nil {
-			// libraries.Service has no SetFilter yet (slice A gap):
-			// a saved filter is immutable in v0.3.8 rather than
-			// silently replaced under a stable library id.
-			libError(w, http.StatusBadRequest, "A saved filter cannot be changed yet; delete and recreate the library")
-			return
-		}
 		ctx := r.Context()
 		svc := c.app.libraries
+		if body.Filter != nil {
+			if err := svc.SetFilter(ctx, lib.ID, *body.Filter); err != nil {
+				libError(w, libErrStatus(err), "Could not update filter")
+				return
+			}
+		}
+		if body.CollectionID != nil {
+			if err := svc.SetCollection(ctx, lib.ID, *body.CollectionID); err != nil {
+				libError(w, libErrStatus(err), "Could not update collection")
+				return
+			}
+		}
+		if body.Sources != nil {
+			if err := c.app.validateCatalogueSources(ctx, lib, *body.Sources); err != nil {
+				libError(w, 400, err.Error())
+				return
+			}
+			if err := svc.SetSources(ctx, lib.ID, *body.Sources); err != nil {
+				libError(w, 500, "Could not save sources")
+				return
+			}
+		}
 		if body.Name != nil {
 			if err := svc.Rename(ctx, lib.ID, *body.Name); err != nil {
 				libError(w, libErrStatus(err), "Could not rename the library")
@@ -405,6 +438,8 @@ func (c *librariesConsole) handler() http.Handler {
 	})
 	mux.HandleFunc("GET /{id}/items", c.handleItems)
 	mux.HandleFunc("GET /collection-sources", c.handleCollectionSources)
+	mux.HandleFunc("GET /catalogue-sources", c.handleCatalogueSources)
+	mux.HandleFunc("POST /catalogue-sources/{source}/sync", c.handleCatalogueSourceSync)
 	mux.HandleFunc("GET /{id}/facets/{field...}", c.handleFacets)
 	mux.HandleFunc("GET /{id}/item/{ref}/match", c.handleMatchGet)
 	mux.HandleFunc("PUT /{id}/item/{ref}/match", c.handleMatchPin)
@@ -772,6 +807,20 @@ func (c *librariesConsole) handleSync(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if lib.Source != core.LibraryPlugin {
+		if len(lib.Sources) > 0 && c.app.catalog != nil {
+			for _, id := range lib.Sources {
+				if _, err := c.app.db.ExecContext(r.Context(), `DELETE FROM libraries_catalogue_state WHERE source_id=?`, id); err != nil {
+					libError(w, 500, "Could not refresh source")
+					return
+				}
+			}
+			if err := c.app.catalog.BrowseSourceLibrary(r.Context(), lib.Sources); err != nil {
+				libError(w, 502, err.Error())
+				return
+			}
+			libJSON(w, 200, map[string]int{"upserted": 0, "deleted": 0, "skipped": 0})
+			return
+		}
 		libError(w, http.StatusConflict, "Only plugin libraries sync from a plugin")
 		return
 	}

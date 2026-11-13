@@ -8,6 +8,7 @@ package libraries
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -134,6 +135,16 @@ func New(ctx context.Context, db *sql.DB, o Options) (*Service, error) {
 	s := &Service{db: db, log: o.Logger.With("component", "libraries"), now: o.Now}
 	if err := s.seedBuiltins(ctx); err != nil {
 		return nil, fmt.Errorf("libraries: seed builtins: %w", err)
+	}
+	libs, err := s.listDB(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, lib := range libs {
+		data, _ := json.Marshal(lib.Sources)
+		if _, err = s.db.ExecContext(ctx, `UPDATE libraries SET sources=? WHERE id=? AND sources='[]'`, string(data), int64(lib.ID)); err != nil {
+			return nil, err
+		}
 	}
 	return s, nil
 }

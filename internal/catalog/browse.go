@@ -21,6 +21,9 @@ import (
 // in-memory count and page caching so repeated library/recommendation reads
 // return without hitting disk.
 func (c *Catalog) Browse(ctx context.Context, q core.BrowseQuery) (core.Page, error) {
+	if err := c.ensureCatalogueSources(ctx, q.Filter); err != nil {
+		return core.Page{}, err
+	}
 	if q.PlaylistSource != nil {
 		return c.browsePlaylist(ctx, q)
 	}
@@ -770,6 +773,22 @@ func (c *Catalog) browseWhere(f core.Filter) (string, []any, error) {
 		}
 		for _, key := range f.AvailabilityKeepKeys {
 			args = append(args, key)
+		}
+	}
+	if len(f.CatalogueSources) > 0 {
+		all := false
+		for _, id := range f.CatalogueSources {
+			if id == "tmdb-movies" || id == "tmdb-tv" {
+				all = true
+			}
+		}
+		if !all {
+			marks := make([]string, len(f.CatalogueSources))
+			for i, id := range f.CatalogueSources {
+				marks[i] = "?"
+				args = append(args, id)
+			}
+			conds = append(conds, "t.key IN (SELECT lcm.key FROM libraries_catalogue_members lcm WHERE lcm.source_id IN ("+strings.Join(marks, ",")+"))")
 		}
 	}
 	if f.CollectionMembers != 0 {

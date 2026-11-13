@@ -1,5 +1,5 @@
-import { Button, toast } from "@braedonsaunders/appkit-ui";
-import { ArrowLeft, Check, ChevronRight, Film, Layers, Plug } from "lucide-react";
+import { Button, Checkbox, toast } from "@braedonsaunders/appkit-ui";
+import { ArrowLeft, Check, Layers, Plus, ListFilter, LibraryBig } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Drawer } from "../../components/Drawer";
@@ -8,8 +8,10 @@ import { Segmented } from "../../components/fields";
 import { t, tn, tx } from "../../i18n";
 import { api, errorMessage } from "../../lib/api";
 import { useAsync } from "../../lib/hooks";
-import { librariesApi, type CollectionSource, type Library, type PluginLibrarySource } from "./api";
+import { librariesApi, type CollectionSource, type Library } from "./api";
 import { CatalogFilterBar, compileQuery, readQuery } from "./browser/CatalogFilterBar";
+import { AddCatalogueSource, SourceIcon, sourceOwner } from "./CatalogueSources";
+import { useStreamEvent } from "../../lib/stream";
 import { SetupWizard } from "./SetupWizard";
 
 /**
@@ -27,42 +29,57 @@ export function NewLibraryDrawer({
   onPluginOpened: (libId?: number) => void;
 }) {
   const [step, setStep] = useState<
-    "source" | "tmdb" | "collection" | { pluginId: string; libId?: number }
+    "source" | "narrow" | "tmdb" | "all" | "collection" | { pluginId: string; libId?: number }
   >("source");
-  const [busyPlugin, setBusyPlugin] = useState<string | null>(null);
-  const pluginSources = useAsync((signal) => librariesApi.listPluginSources(signal), []);
-
-  if (step === "tmdb") {
+  const [selected, setSelected] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const registry = useAsync((signal) => librariesApi.catalogueSources(signal), []);
+  useStreamEvent("plugins.changed", () => {
+    void registry.reload();
+  });
+  const chosen = registry.data?.filter((source) => selected.includes(source.id)) ?? [];
+  if (adding)
+    return (
+      <AddCatalogueSource onClose={() => setAdding(false)} onAdded={() => void registry.reload()} />
+    );
+  if (step === "tmdb" || step === "all")
     return (
       <FilterLibraryEditor
-        onBack={() => setStep("source")}
+        sources={selected}
+        sourceNames={chosen.map((source) => source.name)}
+        allTitles={step === "all"}
+        seed={new URLSearchParams({ type: chosen[0]?.mediaTypes[0] ?? "movie" })}
+        onBack={() => setStep("narrow")}
         onClose={onClose}
         onCreated={onCreated}
       />
     );
-  }
-
-  if (step === "collection") {
+  if (step === "collection")
     return (
       <CollectionLibraryEditor
-        onBack={() => setStep("source")}
+        sourceIds={selected}
+        sourceNames={chosen.map((source) => source.name)}
+        sourceType={chosen[0]?.mediaTypes[0]}
+        onBack={() => setStep("narrow")}
         onClose={onClose}
         onCreated={onCreated}
       />
     );
-  }
-
-  if (typeof step === "object") {
+  if (typeof step === "object")
     return <SetupWizard pluginId={step.pluginId} onClose={() => onPluginOpened(step.libId)} />;
-  }
-
-  const pickPlugin = async (source: PluginLibrarySource) => {
-    setBusyPlugin(source.pluginId);
+  const next = async () => {
+    const source = chosen[0];
+    if (!source) return;
+    if (source.group !== "plugin" || !source.pluginId) {
+      setStep("narrow");
+      return;
+    }
+    setBusy(true);
     try {
       const setup = await librariesApi.ensurePluginSetup(source.pluginId);
-      const libId = setup.libraries[0]?.id;
+      const libId = setup.libraries.find((lib) => lib.kindKey === source.kindKey)?.id;
       if (!setup.steps.length) {
-        toast.success(t("Library ready"));
         onPluginOpened(libId);
         return;
       }
@@ -70,12 +87,11 @@ export function NewLibraryDrawer({
     } catch (e) {
       toast.error(errorMessage(e));
     } finally {
-      setBusyPlugin(null);
+      setBusy(false);
     }
   };
-
-  const sources = pluginSources.data ?? [];
-
+  const card =
+    "flex w-full items-center gap-3 rounded-xl border border-border p-4 text-left hover:bg-surface-hover";
   return (
     <Drawer
       open
@@ -83,104 +99,140 @@ export function NewLibraryDrawer({
       title={t("New library")}
       size="lg"
       footer={
-        <div className="flex justify-end">
-          <Button variant="ghost" onClick={onClose}>
-            {t("Cancel")}
-          </Button>
+        <div className="flex items-center justify-between gap-3">
+          {step === "narrow" ? (
+            <Button variant="ghost" onClick={() => setStep("source")}>
+              <ArrowLeft size={14} />
+              {t("Back")}
+            </Button>
+          ) : (
+            <span />
+          )}
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>
+              {t("Cancel")}
+            </Button>
+            {step === "source" ? (
+              <Button disabled={busy || !chosen.length} onClick={() => void next()}>
+                {t("Continue")}
+              </Button>
+            ) : null}
+          </div>
         </div>
       }
     >
-      <div className="space-y-4">
-        <p className="text-sm font-medium text-fg">{t("Where do titles come from?")}</p>
-        <div className="space-y-2">
-          <button
-            type="button"
-            onClick={() => setStep("tmdb")}
-            className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-hover"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-primary">
-              <Film size={18} aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium text-fg">
-                {t("Movies or TV from TMDB (a saved filter)")}
-              </span>
-              <span className="block text-sm text-fg-muted">
-                {t("Pick genres, years, ratings, or keywords from your TMDB catalog.")}
-              </span>
-            </span>
-            <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setStep("collection")}
-            className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-hover"
-          >
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-primary">
-              <Layers size={18} aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block font-medium text-fg">{t("From a collection")}</span>
-              <span className="block text-sm text-fg-muted">
-                {t("Show exactly the titles of one collection, such as an MDBList or Trakt list.")}
-              </span>
-            </span>
-            <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-          </button>
-
-          {pluginSources.loading && !pluginSources.data ? <LoadingRows rows={2} /> : null}
-          {pluginSources.error ? (
-            <ErrorPanel error={pluginSources.error} onRetry={() => void pluginSources.reload()} />
-          ) : null}
-
-          {sources.map((src) => {
-            const kindLabel =
-              src.kinds
-                .map((k) => k.library?.name || k.label)
-                .filter(Boolean)
-                .join(", ") || src.pluginName;
-            return (
-              <button
-                key={src.pluginId}
-                type="button"
-                disabled={busyPlugin !== null}
-                onClick={() => void pickPlugin(src)}
-                className="flex w-full items-center gap-3 rounded-xl border border-border bg-surface p-4 text-left transition-colors hover:border-border-strong hover:bg-surface-hover disabled:opacity-60"
-              >
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-surface-alt text-primary">
-                  <Plug size={18} aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block font-medium text-fg">{kindLabel}</span>
-                  <span className="block text-sm text-fg-muted">
-                    {src.summary
-                      ? `${t("From {plugin}", { plugin: src.pluginName })} · ${src.summary}`
-                      : t("From {plugin}", { plugin: src.pluginName })}
-                  </span>
-                </span>
-                <ChevronRight size={16} className="shrink-0 text-fg-muted" aria-hidden />
-              </button>
-            );
-          })}
-        </div>
-
-        {!pluginSources.loading && sources.length === 0 ? (
-          <p className="text-sm text-fg-muted">
-            {tx("Want books, audiobooks, comics, or music? {link} that provides a library.", {
-              link: (
-                <Link
-                  to="/plugins"
-                  onClick={onClose}
-                  className="font-medium text-primary underline"
-                >
-                  {t("Install a plugin")}
-                </Link>
+      {step === "narrow" ? (
+        <div className="space-y-3">
+          <p className="font-medium">{t("What goes in it")}</p>
+          <p className="text-sm text-fg-muted">{chosen.map((source) => source.name).join(", ")}</p>
+          {[
+            {
+              key: "all" as const,
+              label: tn(
+                chosen.length,
+                "Everything from this source",
+                "Everything from these sources",
               ),
-            })}
-          </p>
-        ) : null}
-      </div>
+              description: tn(
+                chosen.length,
+                "Include every title this source provides.",
+                "Include every title these sources provide.",
+              ),
+              icon: <LibraryBig size={20} />,
+            },
+            {
+              key: "tmdb" as const,
+              label: t("Saved filter"),
+              description: t("Narrow it with genres, years, ratings, or keywords."),
+              icon: <ListFilter size={20} />,
+            },
+            {
+              key: "collection" as const,
+              label: t("From a collection"),
+              description: t("Only the titles of one collection."),
+              icon: <Layers size={20} />,
+            },
+          ].map((option) => (
+            <button
+              key={option.key}
+              type="button"
+              className={card}
+              onClick={() => setStep(option.key)}
+            >
+              {option.icon}
+              <span>
+                <span className="block font-medium">{option.label}</span>
+                <span className="block text-sm text-fg-muted">{option.description}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <p className="font-medium">{t("Where do titles come from?")}</p>
+          {registry.loading && !registry.data ? <LoadingRows rows={2} /> : null}
+          {registry.error ? (
+            <ErrorPanel error={registry.error} onRetry={() => void registry.reload()} />
+          ) : null}
+          {(["builtin", "plugin", "stremio"] as const)
+            .filter((group) => registry.data?.some((source) => source.group === group))
+            .map((group) => (
+              <div key={group} className="space-y-2">
+                <h3 className="text-sm text-fg-muted">
+                  {group === "builtin"
+                    ? t("Included with Ether")
+                    : group === "plugin"
+                      ? t("Plugins")
+                      : t("Stremio add-ons")}
+                </h3>
+                {registry.data
+                  ?.filter((source) => source.group === group)
+                  .map((source) => {
+                    const incompatible =
+                      chosen.length > 0 &&
+                      !selected.includes(source.id) &&
+                      (chosen[0]?.group === "plugin" ||
+                        source.group === "plugin" ||
+                        chosen[0]?.mediaTypes[0] !== source.mediaTypes[0]);
+                    return (
+                      <label
+                        key={source.id}
+                        className={`${card} ${incompatible ? "opacity-50" : "cursor-pointer"}`}
+                      >
+                        <SourceIcon source={source} />
+                        <Checkbox
+                          className={source.group === "plugin" ? "rounded-full" : ""}
+                          checked={selected.includes(source.id)}
+                          disabled={busy || incompatible}
+                          onChange={(event) =>
+                            setSelected(
+                              event.target.checked
+                                ? [...selected, source.id]
+                                : selected.filter((id) => id !== source.id),
+                            )
+                          }
+                        />
+                        <span className="flex-1">
+                          <span className="block font-medium">{source.name}</span>
+                          <span className="block text-sm text-fg-muted">
+                            {incompatible
+                              ? source.group === "plugin" || chosen[0]?.group === "plugin"
+                                ? t("Plugin sources are used on their own.")
+                                : t("Can't mix movies and TV shows.")
+                              : sourceOwner(source)}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+              </div>
+            ))}
+          <Button variant="secondary" onClick={() => setAdding(true)}>
+            <Plus size={14} />
+            {t("Add catalogue source")}
+          </Button>
+        </div>
+      )}
     </Drawer>
   );
 }
@@ -190,16 +242,20 @@ export function NewLibraryDrawer({
  * built with the same CatalogFilterBar the browser uses, seeded from
  * the current browse state when the owner asks from a library page.
  * New libraries are console-only until "Show in apps" is turned on
- * (§15.3). A saved filter cannot be edited after creation yet — the
- * libraries service has no SetFilter — so this drawer is create-only
- * and says so before saving.
+ * (§15.3). This drawer creates the saved filter; Library Settings can replace it later.
  */
 export function FilterLibraryEditor({
+  allTitles,
+  sourceNames,
+  sources,
   seed,
   onBack,
   onClose,
   onCreated,
 }: {
+  sourceNames?: string[];
+  allTitles?: boolean;
+  sources?: string[];
   seed?: URLSearchParams;
   onBack?: () => void;
   onClose: () => void;
@@ -234,7 +290,7 @@ export function FilterLibraryEditor({
   const save = async () => {
     setSaving(true);
     try {
-      const lib = await librariesApi.createFilter(name.trim(), buildFilter());
+      const lib = await librariesApi.createFilter(name.trim(), buildFilter(), undefined, sources);
       toast.success(t("Library created"));
       onCreated(lib);
     } catch (e) {
@@ -248,7 +304,7 @@ export function FilterLibraryEditor({
     <Drawer
       open
       onClose={onClose}
-      title={t("New library from a filter")}
+      title={allTitles ? t("New library") : t("New library from a filter")}
       size="lg"
       footer={
         <div className="flex items-center justify-between gap-3">
@@ -282,28 +338,48 @@ export function FilterLibraryEditor({
             aria-label={t("Library name")}
           />
         </label>
-        <div className="library-field">
-          <span>{t("What goes in it")}</span>
-          <Segmented
-            ariaLabel={t("What goes in it")}
-            value={type}
-            onChange={setType}
-            options={[
-              { value: "movie", label: t("Movies") },
-              { value: "show", label: t("TV shows") },
-            ]}
-          />
-        </div>
-        <CatalogFilterBar
-          params={params}
-          viewers={viewers.data || []}
-          onChange={(next) => setParams(new URLSearchParams(next.toString()))}
-        />
-        <p className="text-sm text-fg-muted">
-          {t(
-            "Pick filters above; every matching title joins the library and keeps its place in Movies or TV Shows too. The name can change later, but the filter itself cannot yet — you would delete and recreate the library.",
-          )}
-        </p>
+        {allTitles && sourceNames?.length ? (
+          <p className="text-sm text-fg-muted">
+            {t("Titles from: {sources}", { sources: sourceNames.join(", ") })}
+          </p>
+        ) : null}
+        {!allTitles ? (
+          <>
+            {sourceNames?.length ? (
+              <p className="text-sm text-fg-muted">
+                {t("Titles from: {sources}", { sources: sourceNames.join(", ") })}
+              </p>
+            ) : (
+              <>
+                {" "}
+                <div className="library-field">
+                  <span>{t("What goes in it")}</span>
+                  <Segmented
+                    ariaLabel={t("What goes in it")}
+                    value={type}
+                    onChange={sources?.length ? () => {} : setType}
+                    options={[
+                      { value: "movie", label: t("Movies") },
+                      { value: "show", label: t("TV shows") },
+                    ]}
+                  />
+                </div>
+              </>
+            )}
+            <div className="[&_.catalog-query]:!px-0">
+              <CatalogFilterBar
+                params={params}
+                viewers={viewers.data || []}
+                onChange={(next) => setParams(new URLSearchParams(next.toString()))}
+              />
+            </div>
+            <p className="text-sm text-fg-muted">
+              {t(
+                "Pick filters above. Matching titles join this library and stay in Movies and TV Shows.",
+              )}
+            </p>
+          </>
+        ) : null}
       </div>
     </Drawer>
   );
@@ -318,11 +394,17 @@ export function FilterLibraryEditor({
  * empty or deleted collection simply shows nothing.
  */
 export function CollectionLibraryEditor({
+  sourceIds,
+  sourceNames,
+  sourceType,
   collectionId: initialCollectionId,
   onBack,
   onClose,
   onCreated,
 }: {
+  sourceIds?: string[];
+  sourceNames?: string[];
+  sourceType?: string;
   collectionId?: number;
   onBack?: () => void;
   onClose: () => void;
@@ -339,11 +421,11 @@ export function CollectionLibraryEditor({
   // movies (the catalogue browse keeps only movie members) but the owner
   // may switch to shows.
   const [type, setType] = useState<"movie" | "show">(
-    selected?.mediaType === "show" ? "show" : "movie",
+    sourceType === "show" || selected?.mediaType === "show" ? "show" : "movie",
   );
   const chooseCollection = (c: CollectionSource) => {
     setCollectionId(c.id);
-    setType(c.mediaType === "show" ? "show" : "movie");
+    setType(sourceType === "show" || (!sourceType && c.mediaType === "show") ? "show" : "movie");
     if (!name.trim()) setName(c.name);
   };
 
@@ -351,7 +433,13 @@ export function CollectionLibraryEditor({
     if (collectionId === null) return;
     setSaving(true);
     try {
-      const lib = await librariesApi.createCollection(name.trim(), collectionId, type);
+      const lib = await librariesApi.createCollection(
+        name.trim(),
+        collectionId,
+        type,
+        undefined,
+        sourceIds,
+      );
       toast.success(t("Library created"));
       onCreated(lib);
     } catch (e) {
@@ -459,18 +547,27 @@ export function CollectionLibraryEditor({
             aria-label={t("Library name")}
           />
         </label>
-        <div className="library-field">
-          <span>{t("What goes in it")}</span>
-          <Segmented
-            ariaLabel={t("What goes in it")}
-            value={type}
-            onChange={setType}
-            options={[
-              { value: "movie", label: t("Movies") },
-              { value: "show", label: t("TV shows") },
-            ]}
-          />
-        </div>
+        {sourceNames?.length ? (
+          <p className="text-sm text-fg-muted">
+            {t("Titles from: {sources}", { sources: sourceNames.join(", ") })}
+          </p>
+        ) : (
+          <>
+            {" "}
+            <div className="library-field">
+              <span>{t("What goes in it")}</span>
+              <Segmented
+                ariaLabel={t("What goes in it")}
+                value={type}
+                onChange={sourceType ? () => {} : setType}
+                options={[
+                  { value: "movie", label: t("Movies") },
+                  { value: "show", label: t("TV shows") },
+                ]}
+              />
+            </div>
+          </>
+        )}
         <p className="text-sm text-fg-muted">
           {t(
             "The library shows exactly this collection's titles and follows it as it changes. If the collection is deleted, the library simply shows nothing.",

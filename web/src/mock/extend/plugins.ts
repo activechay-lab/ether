@@ -885,6 +885,52 @@ export function createPluginsMock(): {
 } {
   let version = 1;
   const fixtures = fixturePlugins();
+  const books = addonDetail("demo", "Open Library", "books.example", []);
+  books.stremioOnly = false;
+  books.manifest = {
+    id: "demo",
+    name: "Open Library",
+    version: "1.0.0",
+    ether: {
+      protocol: 1,
+      kind: "integration",
+      contributes: {
+        mediaKinds: [
+          {
+            key: "book",
+            label: "Books",
+            library: { name: "Books" },
+            levels: [{ key: "book", label: "Book", playable: true }],
+            present: {},
+            browse: { search: true },
+            sync: { mode: "push" },
+          },
+        ],
+      },
+    },
+  };
+  const cinema = addonDetail("cinemeta", "Cinemeta", "catalogue.example", [
+    { role: "list_source", on: true },
+  ]);
+  cinema.manifest = {
+    ...cinema.manifest,
+    catalogs: [
+      { type: "movie", id: "popular", name: "Popular movies" },
+      { type: "movie", id: "classics", name: "Classic movies" },
+    ],
+    resources: ["catalog"],
+  };
+  for (const detail of [books, cinema])
+    fixtures.push({
+      detail,
+      settings: {},
+      schema: {},
+      descriptors: [],
+      journal: [],
+      shadowJournal: [],
+      logs: [],
+      calls: [],
+    });
   const pairings = new Map<
     string,
     { id: string; created: number; lastUsed: number; expires: number }[]

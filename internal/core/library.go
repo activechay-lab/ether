@@ -24,10 +24,11 @@ const (
 // Library is the one library model for builtins, plugin kinds and
 // owner filter-libraries alike (spec §1.1).
 type Library struct {
-	ID     LibraryID     `json:"id"`
-	Key    string        `json:"key"`  // slug, unique, immutable: "movies", "shows", "pk-<plugin>-<kind>", owner slug
-	Name   string        `json:"name"` // owner-editable display name
-	Source LibrarySource `json:"source"`
+	ID      LibraryID     `json:"id"`
+	Key     string        `json:"key"`  // slug, unique, immutable: "movies", "shows", "pk-<plugin>-<kind>", owner slug
+	Name    string        `json:"name"` // owner-editable display name
+	Source  LibrarySource `json:"source"`
+	Sources []string      `json:"sources"`
 	// Builtin only: TypeMovie or TypeShow.
 	MediaType MediaType `json:"mediaType,omitempty"`
 	// Plugin only.

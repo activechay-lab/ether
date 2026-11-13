@@ -27,6 +27,7 @@ func (s *Service) libraryBrowseFilter(ctx context.Context, v *core.User, lib cor
 			f.Type = t
 		}
 		f.CollectionMembers = lib.CollectionID
+		f.CatalogueSources = lib.Sources
 		return f
 	}
 	return req

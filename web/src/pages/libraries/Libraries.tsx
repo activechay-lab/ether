@@ -71,6 +71,7 @@ function LibrariesList() {
   const navigate = useNavigate();
   const { health } = useApp();
   const list = useAsync((signal) => librariesApi.list(signal), []);
+  const registry = useAsync((signal) => librariesApi.catalogueSources(signal), []);
   const [creating, setCreating] = useState(false);
   const [renaming, setRenaming] = useState<Library | null>(null);
   const [nameDraft, setNameDraft] = useState("");
@@ -154,6 +155,19 @@ function LibrariesList() {
                     <LevelBadge level="ok" label={t("Healthy")} />
                   ) : null}
                 </div>
+                <p className="text-sm text-fg-muted">
+                  {t("Titles from: {sources}", {
+                    sources:
+                      registry.data
+                        ?.filter(
+                          (source) =>
+                            lib.sources?.includes(source.id) ||
+                            source.libraries.some((item) => item.id === lib.id),
+                        )
+                        .map((source) => source.name)
+                        .join(", ") || sourceBadge(lib),
+                  })}
+                </p>
                 <p className="library-card-apps">
                   {lib.hidden ? (
                     <>

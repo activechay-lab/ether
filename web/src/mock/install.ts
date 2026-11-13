@@ -37,6 +37,7 @@ export function installMockBackend(): void {
       { enabled: true },
     ]),
   );
+  if (params.get("catalogKey") === "missing") fake.state.config.catalog.tmdbKey = "";
   // Deterministic account workspaces for owner-console visual review.
   if (params.get("integrations") === "all") {
     const c = fake.state.config;

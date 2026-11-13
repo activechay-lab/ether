@@ -49,10 +49,24 @@ export interface LibrarySync {
   items: number;
 }
 
+export interface CatalogueSource {
+  id: string;
+  name: string;
+  owner: string;
+  group: "builtin" | "plugin" | "stremio";
+  mediaTypes: string[];
+  health: string;
+  itemCount?: number;
+  pluginId?: string;
+  kindKey?: string;
+  libraries: { id: number; name: string }[];
+}
+
 export interface Library {
   id: number;
   key: string;
   name: string;
+  sources?: string[];
   source: "builtin" | "plugin" | "filter" | "collection";
   mediaType?: string;
   pluginId?: string;
@@ -158,23 +172,43 @@ export interface PluginLibrarySource {
 }
 
 export const librariesApi = {
+  syncCatalogueSource: (id: string) =>
+    apiFetch<{ ok: boolean }>(`/libraries/catalogue-sources/${encodeURIComponent(id)}/sync`, {
+      method: "POST",
+    }),
+  catalogueSources: (signal?: AbortSignal) =>
+    apiFetch<{ sources: CatalogueSource[] }>("/libraries/catalogue-sources", { signal }).then(
+      (r) => r.sources,
+    ),
   list: (signal?: AbortSignal) =>
     apiFetch<{ libraries: Library[] }>("/libraries", { signal }).then((r) => r.libraries),
   get: (id: number, signal?: AbortSignal) => apiFetch<Library>(`/libraries/${id}`, { signal }),
-  createFilter: (name: string, filter: Record<string, unknown>, present?: Presentations) =>
+  createFilter: (
+    name: string,
+    filter: Record<string, unknown>,
+    present?: Presentations,
+    sources?: string[],
+  ) =>
     apiFetch<Library>("/libraries", {
       method: "POST",
-      body: JSON.stringify({ name, filter, ...(present ? { present } : {}) }),
+      body: JSON.stringify({ name, filter, sources, ...(present ? { present } : {}) }),
     }),
   createCollection: (
     name: string,
     collectionId: number,
     mediaType: string,
     present?: Presentations,
+    sources?: string[],
   ) =>
     apiFetch<Library>("/libraries", {
       method: "POST",
-      body: JSON.stringify({ name, collectionId, mediaType, ...(present ? { present } : {}) }),
+      body: JSON.stringify({
+        name,
+        collectionId,
+        mediaType,
+        sources,
+        ...(present ? { present } : {}),
+      }),
     }),
   listCollectionSources: (signal?: AbortSignal) =>
     apiFetch<{ collections: CollectionSource[] }>("/libraries/collection-sources", { signal }).then(

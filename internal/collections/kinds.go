@@ -60,14 +60,15 @@ type KindDescribe struct {
 
 // Gather is the context one source gather runs with. Kinds append to Res.
 type Gather struct {
-	Ctx   context.Context
-	Svc   *Service
-	Spec  *core.CollectionSpec
-	Src   core.CollectionSource
-	Rules []*rule
-	Want  int
-	Kinds []string
-	Res   sourceResult
+	Strict bool // on-demand catalogue refreshes preserve old membership on upstream errors
+	Ctx    context.Context
+	Svc    *Service
+	Spec   *core.CollectionSpec
+	Src    core.CollectionSource
+	Rules  []*rule
+	Want   int
+	Kinds  []string
+	Res    sourceResult
 }
 
 // Fail ends a preview when a source cannot be evaluated.

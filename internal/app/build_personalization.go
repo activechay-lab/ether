@@ -157,6 +157,7 @@ func (a *App) buildPersonalization(ctx context.Context, cfg config.Config) error
 			if err != nil {
 				return nil, nil, fmt.Errorf("collections: %w", err)
 			}
+			a.wireCatalogueSources()
 			a.recommend = recommend.New(recommend.Options{Catalog: a.catalog, State: a.state, LLM: a.llm, Scorer: scorer, Logger: log.With("component", "recommend")})
 			return a.recommend, a.collections, nil
 		},

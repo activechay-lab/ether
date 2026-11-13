@@ -36,6 +36,7 @@ import { contributionTab, primaryContribution } from "./drawer/kinds";
 import { PluginContributions } from "./drawer/PluginContributions";
 import { PluginOverview } from "./drawer/PluginOverview";
 import { PluginSetup } from "./drawer/PluginSetup";
+import { PluginCatalogueSettings } from "./drawer/PluginCatalogueSettings";
 import { SetupWizard } from "../libraries/SetupWizard";
 import { MenuItem } from "./MenuItem";
 import { openInStudio } from "./openInStudio";
@@ -270,6 +271,8 @@ export function InstalledPluginDrawer({
   ];
   const active = tabs.some((x) => x.key === tab) ? tab : "overview";
 
+  if (setupWizard && detail)
+    return <SetupWizard pluginId={detail.id} onClose={() => setSetupWizard(false)} />;
   return (
     <Drawer
       open={Boolean(pluginId)}
@@ -437,9 +440,6 @@ export function InstalledPluginDrawer({
               }
             />
           ) : null}
-          {setupWizard ? (
-            <SetupWizard pluginId={detail.id} onClose={() => setSetupWizard(false)} />
-          ) : null}
           {!detail.enabled ? (
             <Banner
               icon={<PowerOff size={16} className="text-fg-subtle" />}
@@ -490,12 +490,15 @@ export function InstalledPluginDrawer({
               onChanged={() => void reload()}
             />
           ) : active === "setup" ? (
-            <PluginSetup
-              detail={detail}
-              onDetail={() => loadDetail(detail.id, true)}
-              onChanged={onChanged}
-              onError={setMutationError}
-            />
+            <>
+              <PluginCatalogueSettings pluginId={detail.id} onSetup={() => setSetupWizard(true)} />{" "}
+              <PluginSetup
+                detail={detail}
+                onDetail={() => loadDetail(detail.id, true)}
+                onChanged={onChanged}
+                onError={setMutationError}
+              />
+            </>
           ) : (
             <PluginActivity
               detail={detail}
