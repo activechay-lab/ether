@@ -188,7 +188,10 @@ func TestPluginProvidedKindStillLists(t *testing.T) {
 		Active:          func(context.Context, int64) (*core.User, error) { return viewer, nil },
 		PluginLibraries: pl,
 		Protocol:        "jellyfin",
-		Visibility:      Visibility{SectionFor: func(core.MediaType) (int, bool) { return 2, true }},
+		LibraryPresentation: func(p core.Presentations, mt core.MediaType) (core.MediaType, string, bool) {
+			return mt, p.MediaBrowser.CollectionType, true
+		},
+		Visibility: Visibility{SectionFor: func(core.MediaType) (int, bool) { return 2, true }},
 	}}
 	q := frontend.ItemQuery{UnservedTypes: []string{"musicalbum"}}
 	if !svc.requestedTypesServable(ctx, viewer, q) {

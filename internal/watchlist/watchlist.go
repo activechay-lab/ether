@@ -49,6 +49,8 @@ type Source interface {
 type Notifier interface {
 	TitleAvailable(context.Context, string) error
 }
+
+// Account-source names in settings and feed encryption contexts are persisted identities.
 type Settings struct {
 	PlexFriendsStatus    []FriendFeedStatus `json:"plexFriendsStatus,omitempty"`
 	Enabled              bool               `json:"enabled"`
@@ -499,6 +501,7 @@ func (s *Service) replace(ctx context.Context, u *core.User, source string, ts [
 }
 
 // SyncResult describes the Plex outcome of an explicit viewer sync.
+// SyncResult names external account sources, independent of the requesting frontend.
 type SyncResult struct {
 	Plex  string `json:"plex"`
 	Count int    `json:"count"`
@@ -545,6 +548,7 @@ func (s *Service) syncViewer(ctx context.Context, u *core.User, result *SyncResu
 			result.Plex = "synced"
 			ts, e := s.plex(ctx, token)
 			if e == nil {
+				// External account source identity, independent of the requesting frontend.
 				e = s.replace(ctx, u, "plex", ts)
 				if e == nil {
 					keys := map[core.RatingKey]bool{}

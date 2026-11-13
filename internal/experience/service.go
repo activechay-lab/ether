@@ -39,6 +39,10 @@ type LibraryPageExclusions struct {
 
 // ServiceDeps contains trusted host dependencies, never provided by a frontend.
 type ServiceDeps struct {
+	// LibraryPresentation and BuiltinNative are supplied by the surface wiring.
+	LibraryPresentation func(core.Presentations, core.MediaType) (core.MediaType, string, bool)
+	BuiltinNative       func(core.MediaType) string
+
 	// BeginPeopleRead supplies fresh, fenced policy facts for the optional People API.
 	BeginPeopleRead     func(context.Context, *core.User) (PeopleRead, error)
 	NotInterestedSource func(context.Context, *core.User) ([]frontend.NotInterestedEntry, error)

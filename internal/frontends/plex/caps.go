@@ -41,6 +41,7 @@ func (pr *Request) ClientCapsWith(remoteMaxKbps int, overrides []frontend.Client
 	b := playbackCaps(pr, overrides)
 	c := frontend.ClientCaps{
 		Protocol:                   "plex",
+		PreserveEmptyVideoCodecs:   true,
 		AwaitAdmissionIndex:        true,
 		DeferSourceCodecValidation: true,
 		Product:                    pr.Product,

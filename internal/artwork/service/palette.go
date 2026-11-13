@@ -23,6 +23,7 @@ import (
 )
 
 func init() {
+	// Historical migration namespace and table names preserve existing cached palettes.
 	store.Register("plex", 1, `CREATE TABLE plex_ultrablur (
 		key          INTEGER PRIMARY KEY,
 		backdrop     TEXT    NOT NULL,

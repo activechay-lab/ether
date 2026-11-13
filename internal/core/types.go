@@ -209,6 +209,8 @@ type User struct {
 // ClientCaps is what a Plex client can play, derived from X-Plex-* headers,
 // the client profile and its declared limits.
 type ClientCaps struct {
+	// PreserveEmptyVideoCodecs prevents registry inference when the adapter owns codec defaults.
+	PreserveEmptyVideoCodecs bool `json:"preserveEmptyVideoCodecs,omitempty"`
 	// DeferSourceCodecValidation lets delivery selection handle a source codec mismatch.
 	DeferSourceCodecValidation bool `json:"deferSourceCodecValidation,omitempty"`
 	// AwaitAdmissionIndex briefly joins the generation-owned index before delivery selection.
