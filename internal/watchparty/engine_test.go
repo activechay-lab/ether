@@ -32,7 +32,7 @@ func testEngine(now *time.Time, allow func(*core.Viewer) error, streams func(*co
 }
 
 func actor(id int64, protocol frontend.Protocol, device string) frontend.PartyActor {
-	return frontend.PartyActor{Viewer: &core.Viewer{ID: id, Username: "viewer"}, Device: core.Device{ID: device}, Protocol: protocol}
+	return frontend.PartyActor{Viewer: &core.Viewer{ID: id, Username: "viewer"}, Device: core.Device{ID: device}, Protocol: protocol, Capabilities: frontend.PartyCapabilities{GroupEvents: protocol == "jellyfin", SharedControls: protocol == "jellyfin", VariableRate: protocol == "silo", SocketSnapshots: protocol == "silo"}}
 }
 
 func TestSharedClockAndRejoin(t *testing.T) {

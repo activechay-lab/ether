@@ -65,7 +65,7 @@ func (i *instance) syncActor(r *http.Request) (frontend.PartyActor, int) {
 	if i.host.WatchParty == nil {
 		return frontend.PartyActor{}, http.StatusNotFound
 	}
-	return frontend.PartyActor{Viewer: v, Device: device(r), Protocol: i.protocol}, 0
+	return frontend.PartyActor{Viewer: v, Device: device(r), Protocol: i.protocol, Capabilities: frontend.PartyCapabilities{GroupEvents: true, SharedControls: true}}, 0
 }
 
 func (i *instance) syncRoom(r *http.Request, actor frontend.PartyActor) (frontend.PartyView, error) {

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"github.com/braedonsaunders/ether/internal/frontend/kit/authhdr"
 	"reflect"
 	"strings"
 	"testing"
@@ -73,7 +74,7 @@ func TestImageGrantBatchPageAuthorization(t *testing.T) {
 				// Hidden is omitted; an extra unrequested map key must never be granted.
 				return map[core.RatingKey][]frontend.Image{first: images, empty: nil, extra: images}, nil
 			}}
-			service, err := identity.NewImageGrantService(db, "stremio", grants, func() frontend.Experience { return exp }, &imageFixture{}, time.Minute, nil)
+			service, err := identity.NewImageGrantService(db, "stremio", grants, func() frontend.Experience { return exp }, &imageFixture{}, time.Minute, nil, identity.ImageGrantOptions{Token: authhdr.MediaBrowserToken, PublicContentTags: true})
 			if err != nil {
 				t.Fatal(err)
 			}

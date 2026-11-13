@@ -68,7 +68,7 @@ func (e *Engine) PreviewHome(ctx context.Context, user *core.User, hc core.HubCo
 		}
 		if !hasCW {
 			items := e.continueItems(ctx, user, limit)
-			p.Rows = append([]core.HomeRow{plexRow("home.continue", "Continue Watching", KindContinue,
+			p.Rows = append([]core.HomeRow{legacyRow("home.continue", "Continue Watching", KindContinue,
 				"Titles you're part-way through (Plex's own row).", items)}, p.Rows...)
 		}
 		if row, ok := e.playlistsRow(ctx, user); ok {
@@ -86,10 +86,10 @@ func (e *Engine) PreviewHome(ctx context.Context, user *core.User, hc core.HubCo
 		if len(cw) > limit {
 			cw = cw[:limit]
 		}
-		head := []core.HomeRow{plexRow(prefix+".inprogress."+sid, "Continue Watching", KindContinue,
+		head := []core.HomeRow{legacyRow(prefix+".inprogress."+sid, "Continue Watching", KindContinue,
 			"Titles you're part-way through in this library (Plex's own row).", cw)}
 		ra := e.recentlyAdded(ctx, user, section, limit)
-		head = append(head, plexRow(prefix+".recentlyadded."+sid, "Recently Added", KindRecentlyAdded,
+		head = append(head, legacyRow(prefix+".recentlyadded."+sid, "Recently Added", KindRecentlyAdded,
 			"The newest additions to this library (Plex's own row).", ra))
 		p.Rows = append(head, p.Rows...)
 	}
@@ -460,7 +460,7 @@ func (e *Engine) resolveSection(name string) (int, core.MediaType, error) {
 	return 0, "", &ValidationError{Problems: []Problem{{"section", "no " + string(want) + " library"}}}
 }
 
-func plexRow(hubID, title, kind, reason string, items []candItem) core.HomeRow {
+func legacyRow(hubID, title, kind, reason string, items []candItem) core.HomeRow {
 	titles := make([]core.Title, len(items))
 	reasons := map[core.RatingKey]string{}
 	for i, it := range items {
@@ -498,7 +498,7 @@ func (e *Engine) playlistsRow(ctx context.Context, user *core.User) (core.HomeRo
 		names = append(names, p.Title)
 	}
 	sort.Strings(names)
-	r := plexRow("home.playlists", "Recent Playlists", KindPlaylists,
+	r := legacyRow("home.playlists", "Recent Playlists", KindPlaylists,
 		"The viewer's playlists (Plex's own row): "+strings.Join(names, ", ")+".", nil)
 	return r, true
 }

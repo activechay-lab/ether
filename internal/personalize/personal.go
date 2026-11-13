@@ -44,7 +44,7 @@ func (e *Engine) Picks(ctx context.Context, u *core.User, kinds map[string]float
 	rows := preview.Rows
 	b := &builder{e: e, ctx: ctx, user: *u, now: e.now()}
 	for _, r := range b.genUpNext() {
-		rows = append(rows, plexRow(r.id, r.title, r.kind, r.reason, r.items))
+		rows = append(rows, legacyRow(r.id, r.title, r.kind, r.reason, r.items))
 	}
 	if e.opts.PersonalWatchlist != nil {
 		titles, err := e.opts.PersonalWatchlist(ctx, u)

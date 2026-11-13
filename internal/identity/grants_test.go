@@ -179,7 +179,7 @@ func TestResolverSeparatesPlexAndGrants(t *testing.T) {
 		t.Fatal(err)
 	}
 	plex := &plexAuth{}
-	resolver, err := identity.NewResolver(plex, grants)
+	resolver, err := identity.NewResolver(map[string]identity.Authenticator{"plex": plex}, grants)
 	if err != nil {
 		t.Fatal(err)
 	}

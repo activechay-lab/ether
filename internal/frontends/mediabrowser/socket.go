@@ -80,7 +80,7 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 	}
 	var party <-chan frontend.PartyEvent
 	if i.protocol == "jellyfin" && i.host.WatchParty != nil {
-		ch, done := i.host.WatchParty.Subscribe(frontend.PartyActor{Viewer: viewer, Device: device(r), Protocol: i.protocol})
+		ch, done := i.host.WatchParty.Subscribe(frontend.PartyActor{Viewer: viewer, Device: device(r), Protocol: i.protocol, Capabilities: frontend.PartyCapabilities{GroupEvents: true, SharedControls: true}})
 		party = ch
 		defer done()
 	}
@@ -125,7 +125,7 @@ func (i *instance) socket(w http.ResponseWriter, r *http.Request) {
 				}
 				if i.host.Events != nil {
 					sessionCtx, stopSessions := context.WithCancel(ctx)
-					ch, err := i.host.Events.Subscribe(sessionCtx, frontend.EventScope{Viewer: viewer, Owner: viewer.IsOwner && !viewer.Delegated, Protocol: i.protocol})
+					ch, err := i.host.Events.Subscribe(sessionCtx, frontend.EventScope{Viewer: viewer, Owner: viewer.IsOwner && !viewer.Delegated, Protocol: i.protocol, Capabilities: frontend.PartyCapabilities{GroupEvents: true, SharedControls: true}})
 					if err != nil {
 						stopSessions()
 					} else {

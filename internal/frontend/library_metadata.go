@@ -2,8 +2,8 @@ package frontend
 
 import (
 	"context"
+	plexmeta "github.com/braedonsaunders/ether/internal/frontends/plex/metadata"
 	"github.com/braedonsaunders/ether/internal/plexguid"
-	"github.com/braedonsaunders/ether/internal/plexmeta"
 )
 
 // LibraryGUIDs reads cached library identities and schedules host refreshes.

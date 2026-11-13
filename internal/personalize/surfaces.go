@@ -28,7 +28,7 @@ const (
 	groupShows       = "shows"
 	groupHousehold   = "household"
 	groupCollections = "collections"
-	groupPlex        = "plex"
+	groupPlex        = "plex" // Persisted Home Designer group identity.
 )
 
 var allSurfaces = []string{surfHome, surfMovies, surfShows}

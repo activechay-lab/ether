@@ -35,16 +35,24 @@ func init() {
 type ImageSource interface {
 	Get(context.Context, string, int) ([]byte, string, error)
 }
+
+// ImageGrantOptions supplies adapter-owned credential parsing and public URL policy.
+type ImageGrantOptions struct {
+	Token             func(*http.Request) string
+	PublicContentTags bool
+}
+
 type ImageGrantService struct {
-	db         *sql.DB
-	surface    frontend.Protocol
-	grants     *Grants
-	experience func() frontend.Experience
-	images     ImageSource
-	artwork    frontend.Artwork
-	now        func() time.Time
-	ttl        time.Duration
-	admission  imageAdmission
+	requestOptions ImageGrantOptions
+	db             *sql.DB
+	surface        frontend.Protocol
+	grants         *Grants
+	experience     func() frontend.Experience
+	images         ImageSource
+	artwork        frontend.Artwork
+	now            func() time.Time
+	ttl            time.Duration
+	admission      imageAdmission
 	// beforeImageCleanup is test-only. It runs after the shard lock and the
 	// source recheck, and before expired-row deletion.
 	beforeImageCleanup func(*sql.Tx)
@@ -79,11 +87,11 @@ func (s *ImageGrantService) Generation() uint64 {
 // NewArtworkImageGrantService serves descriptors through the authorized
 // artwork source. The source is consulted again for every fetch, after the
 // session, viewer and Experience policy checks performed by Serve.
-func NewArtworkImageGrantService(db *sql.DB, surface frontend.Protocol, grants *Grants, experience func() frontend.Experience, artwork frontend.Artwork, ttl time.Duration, now func() time.Time) (*ImageGrantService, error) {
+func NewArtworkImageGrantService(db *sql.DB, surface frontend.Protocol, grants *Grants, experience func() frontend.Experience, artwork frontend.Artwork, ttl time.Duration, now func() time.Time, options ...ImageGrantOptions) (*ImageGrantService, error) {
 	if artwork == nil {
 		return nil, errors.New("identity: missing artwork source")
 	}
-	s, err := NewImageGrantService(db, surface, grants, experience, unavailableImageSource{}, ttl, now)
+	s, err := NewImageGrantService(db, surface, grants, experience, unavailableImageSource{}, ttl, now, options...)
 	if err != nil {
 		return nil, err
 	}
@@ -97,14 +105,18 @@ func (unavailableImageSource) Get(context.Context, string, int) ([]byte, string,
 	return nil, "", core.ErrNotAvailable
 }
 
-func NewImageGrantService(db *sql.DB, surface frontend.Protocol, grants *Grants, experience func() frontend.Experience, images ImageSource, ttl time.Duration, now func() time.Time) (*ImageGrantService, error) {
-	if db == nil || surface == "" || surface == "plex" || grants == nil || experience == nil || images == nil || ttl < time.Second {
+func NewImageGrantService(db *sql.DB, surface frontend.Protocol, grants *Grants, experience func() frontend.Experience, images ImageSource, ttl time.Duration, now func() time.Time, options ...ImageGrantOptions) (*ImageGrantService, error) {
+	if db == nil || surface == "" || grants == nil || experience == nil || images == nil || ttl < time.Second {
 		return nil, errors.New("identity: invalid image grant dependencies")
 	}
 	if now == nil {
 		now = time.Now
 	}
-	return &ImageGrantService{db: db, surface: surface, grants: grants, experience: experience, images: images, now: now, ttl: ttl, admission: defaultImageAdmission()}, nil
+	var requestOptions ImageGrantOptions
+	if len(options) > 0 {
+		requestOptions = options[0]
+	}
+	return &ImageGrantService{requestOptions: requestOptions, db: db, surface: surface, grants: grants, experience: experience, images: images, now: now, ttl: ttl, admission: defaultImageAdmission()}, nil
 }
 func validImageSecret(secret string) (string, bool) {
 	b, e := base64.RawURLEncoding.Strict().DecodeString(secret)

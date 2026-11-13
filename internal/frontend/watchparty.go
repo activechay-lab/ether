@@ -19,10 +19,18 @@ var (
 
 // PartyActor is one device of one viewer on one protocol. The same viewer on
 // Silo and Jellyfin is two actors, so both can sit in one party.
+// PartyCapabilities describes transport and room controls supplied by an adapter.
+type PartyCapabilities struct {
+	GroupEvents     bool
+	SharedControls  bool
+	VariableRate    bool
+	SocketSnapshots bool
+}
 type PartyActor struct {
-	Viewer   *core.Viewer
-	Device   core.Device
-	Protocol Protocol
+	Capabilities PartyCapabilities
+	Viewer       *core.Viewer
+	Device       core.Device
+	Protocol     Protocol
 }
 
 // PartyCreate opens a room. RoomID may be empty; the engine mints a UUID.
