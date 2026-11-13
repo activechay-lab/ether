@@ -210,10 +210,6 @@ func (s *Servers) serverSyncInterval(ctx context.Context, serverID int64) int {
 	return interval
 }
 
-type grandchildrenCatalog interface {
-	Grandchildren(ctx context.Context, key core.RatingKey) ([]core.Title, error)
-}
-
 func (s *Servers) runHeldPass(ctx context.Context, serverID int64) (bool, error) {
 	srv, err := s.loadServer(ctx, serverID)
 	if err != nil {

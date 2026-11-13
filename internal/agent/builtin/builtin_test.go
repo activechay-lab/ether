@@ -417,8 +417,8 @@ func callTool(t *testing.T, cat *tools.Catalogue, ctx context.Context, p tools.P
 func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 	_, d := buildDeps()
 	all := builtin.All(d)
-	if len(all) != 37 {
-		t.Fatalf("expected 37 built-in tools, got %d", len(all))
+	if len(all) != 38 {
+		t.Fatalf("expected 38 built-in tools, got %d", len(all))
 	}
 
 	wantRead := []string{
@@ -429,7 +429,7 @@ func TestBuiltinCatalogueAndSchemaInvariants(t *testing.T) {
 		"web_search", "web_fetch", "look_draft", "livetv_look_draft", "channel_summary",
 	}
 	wantWrite := []string{
-		"livetv_guide_match",
+		"livetv_channel_apply", "livetv_guide_match",
 		"collection_create_from_prompt", "release_blocklist", "release_pin",
 		"quality_order_set", "format_scores_set", "rule_add", "source_add_stremio", "source_add_m3u",
 		"frontend_enable", "plugin_enable", "server_restart", "livetv_look_save", "livetv_channel_look",

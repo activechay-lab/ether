@@ -154,7 +154,9 @@ function stepAsideCauseText(a: PMSStepAsideExplanation): string {
         "Still showing: the last check of this server failed, so Ether isn't sure what it holds. It will try again.",
       );
     case "not_scanned":
-      return t("Still showing: this server has not been checked yet. The first check runs shortly.");
+      return t(
+        "Still showing: this server has not been checked yet. The first check runs shortly.",
+      );
     case "step_aside_off":
       return t(
         "Still showing: step aside is off for every server. Turn it on above to hide titles your server already has.",
@@ -1091,13 +1093,16 @@ export function PlexServers({ enabled }: { enabled: boolean }) {
                       })}
                     </p>
                     <p className="text-fg-muted">
-                      {[...explain.answer.missing, ...(explain.answer.missingMore
-                        ? [
-                            t("and {count} more", {
-                              count: explain.answer.missingMore,
-                            }),
-                          ]
-                        : [])].join(", ")}
+                      {[
+                        ...explain.answer.missing,
+                        ...(explain.answer.missingMore
+                          ? [
+                              t("and {count} more", {
+                                count: explain.answer.missingMore,
+                              }),
+                            ]
+                          : []),
+                      ].join(", ")}
                     </p>
                   </div>
                 ) : null}

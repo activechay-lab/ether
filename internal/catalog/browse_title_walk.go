@@ -117,7 +117,9 @@ func walkableFilter(f core.Filter) bool {
 // rows apart matters most on PostgreSQL, whose index scan fetches the row
 // of every title it skips: 24,000 titles deep, 800 ms against 11 ms.
 func (c *Catalog) titlePageKeys(ctx context.Context, where string, args []any, q core.BrowseQuery, offset, limit int) ([]core.RatingKey, error) {
-	rows, err := c.db.QueryContext(ctx, `SELECT t.key FROM catalog_titles t WHERE `+c.genreProbe(where, q.Filter)+` ORDER BY `+browseOrder(q)+`, t.key ASC LIMIT ? OFFSET ?`, append(append([]any{}, args...), limit, offset)...)
+	// Keep the page ordered by the covering index even when planner statistics
+	// prefer enumerating and sorting the genre's entire library.
+	rows, err := c.db.QueryContext(ctx, `SELECT t.key FROM catalog_titles t`+c.indexedBy("catalog_titles_type_browse_sort")+` WHERE `+c.genreProbe(where, q.Filter)+` ORDER BY `+browseOrder(q)+`, t.key ASC LIMIT ? OFFSET ?`, append(append([]any{}, args...), limit, offset)...)
 	if err != nil {
 		return nil, err
 	}

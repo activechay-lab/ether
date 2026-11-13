@@ -56,6 +56,11 @@ func setupTestApp(t *testing.T, complete bool) *App {
 
 func setupTestAppWith(t *testing.T, complete bool, opts Options) *App {
 	t.Helper()
+	return setupTestAppConfigured(t, complete, opts, nil)
+}
+
+func setupTestAppConfigured(t *testing.T, complete bool, opts Options, configure func(*config.Config)) *App {
+	t.Helper()
 	dir := t.TempDir()
 	cfg, err := config.Open(dir)
 	if err != nil {
@@ -63,6 +68,9 @@ func setupTestAppWith(t *testing.T, complete bool, opts Options) *App {
 	}
 	if err := cfg.Update(func(c *config.Config) error {
 		c.SetupComplete = complete
+		if configure != nil {
+			configure(c)
+		}
 		c.Plex.Token = "test-owner"
 		c.Transcode.FFmpegPath = "/not-installed/ffmpeg"
 		return nil

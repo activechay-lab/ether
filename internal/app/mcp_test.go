@@ -33,6 +33,8 @@ func TestMCPBuiltinToolsAndEndToEndWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := cfg.Update(func(c *config.Config) error {
+		enabled := true
+		c.LiveTV.Enabled = &enabled
 		c.SetupComplete = true
 		c.Frontends = map[string]config.Frontend{"plex": {Enabled: false}}
 		c.Transcode.FFmpegPath = "/not-installed/ffmpeg"
@@ -55,8 +57,8 @@ func TestMCPBuiltinToolsAndEndToEndWorkflow(t *testing.T) {
 	// and the descriptor registry (extend.KindTool). web_search and web_fetch
 	// are among them but stay invisible to MCP principals.
 	toolDescs := a.extendRT.registry.List(extend.KindTool)
-	if len(toolDescs) != 37 {
-		t.Fatalf("expected 37 extend.KindTool descriptors, got %d", len(toolDescs))
+	if len(toolDescs) != 38 {
+		t.Fatalf("expected 38 extend.KindTool descriptors, got %d", len(toolDescs))
 	}
 
 	// Route-to-tool coverage for the existing guide match endpoint. Both MCP

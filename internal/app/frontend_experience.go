@@ -55,13 +55,6 @@ func (a *App) experienceSearch(vis experience.Visibility, stepAside *experience.
 	return experience.SearchFor(a.searchSourcesFor(stepAside), vis, unrestricted)
 }
 
-// searchSources is the one search every frontend uses (Plex included):
-// the catalogue with the owner's availability rules, natural-language
-// search, viewer affinity and collection readings.
-func (a *App) searchSources() experience.SearchSources {
-	return a.searchSourcesFor(nil)
-}
-
 func (a *App) searchSourcesFor(stepAside *experience.StepAside) experience.SearchSources {
 	src := experience.SearchSources{Catalog: a.catalog.Search, Details: a.catalog.SearchDetails}
 	if a.availability != nil && !a.cfg.Read().Spike.Enabled {
