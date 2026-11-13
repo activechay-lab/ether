@@ -1987,6 +1987,8 @@ func NoopExperience() Experience { return noopExperience{} }
 
 type noopExperience struct{}
 
+func (noopExperience) PublishedViews(context.Context) ([]View, error) { return nil, nil }
+
 func (noopExperience) Views(context.Context, *Viewer) ([]View, error) {
 	return nil, nil
 }

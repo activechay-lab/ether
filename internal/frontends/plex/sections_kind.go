@@ -28,12 +28,8 @@ const (
 	typeNumPhoto  = 13
 )
 
-// ownerViewer is the synthetic viewer used to enumerate every published
-// library, independent of any client. An owner sees all libraries.
-func ownerViewer() *frontend.Viewer { return &frontend.User{IsOwner: true} }
-
 // publishedKindSections returns one Section per Plex-published plugin or
-// filter library, from the Experience's view list. It is the only place a
+// filter library, from the protocol's published libraries. It is the only place a
 // plugin library becomes a Plex section (spec §6.4). Built-in libraries are
 // not returned here; buildSections keeps their existing identities.
 func (s *Server) publishedKindSections(ctx context.Context) []Section {
@@ -41,7 +37,7 @@ func (s *Server) publishedKindSections(ctx context.Context) []Section {
 	if exp == nil {
 		return nil
 	}
-	views, err := exp.Views(ctx, ownerViewer())
+	views, err := exp.PublishedViews(ctx)
 	if err != nil {
 		return nil
 	}
