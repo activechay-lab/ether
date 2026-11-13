@@ -1,6 +1,7 @@
 package segcache
 
 import (
+	"context"
 	"testing"
 	"time"
 )
@@ -81,6 +82,7 @@ func TestPlaybackMetadataAndCounters(t *testing.T) {
 	}
 	c.Close()
 	again := openT(t, dir, 100)
+	again.indexDisk(context.Background())
 	r := again.Releases()[0]
 	if r.Title != "A movie" || r.Plays != 2 || r.Size != 40 || r.LastPlayed.IsZero() {
 		t.Fatalf("lost metadata: %+v", r)

@@ -110,7 +110,7 @@ func readSegment(path string, size int64) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(b)) != size+headerSize || [4]byte(b[:4]) != headerMagic {
+	if len(b) < headerSize || int64(len(b)) != size+headerSize || [4]byte(b[:4]) != headerMagic {
 		return nil, errCorrupt
 	}
 	payload := b[headerSize:]
@@ -193,8 +193,8 @@ func readReleaseMeta(dir string) (string, error) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		return "", fmt.Errorf("decode %s: %w", metaFileName, err)
 	}
-	if m.ReleaseID == "" {
-		return "", fmt.Errorf("decode %s: empty release id", metaFileName)
+	if m.Version != 1 || m.ReleaseID == "" {
+		return "", fmt.Errorf("decode %s: invalid metadata version or release id", metaFileName)
 	}
 	return m.ReleaseID, nil
 }

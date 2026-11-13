@@ -33,6 +33,7 @@ func TestLocalProvenanceMergeAndRestart(t *testing.T) {
 	}
 
 	again := openT(t, dir, 1024)
+	again.indexDisk(context.Background())
 	got := again.Releases()[0]
 	if got.file != "Film.mkv" || got.source != "Release.Name" || got.Size != 100 || got.Plays != 2 || len(got.causes) != 2 || !got.causes[0].FirstSeen.Equal(time.Unix(1000, 0)) {
 		t.Fatalf("restart lost provenance: %+v", got)

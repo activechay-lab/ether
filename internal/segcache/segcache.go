@@ -17,10 +17,12 @@
 package segcache
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"hash/maphash"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -118,7 +120,8 @@ type release struct {
 	head, tail *entry
 	bytes      int64
 	lastUsed   int64
-	metaOK     bool // directory and release.json exist on disk
+	deleting   map[int]bool // keys being unlinked; never rediscover between index removal and unlink
+	metaOK     bool         // directory and release.json exist on disk
 	// metaMu serializes writing release.json: concurrent Puts for a new
 	// release would otherwise race their atomic renames onto the same
 	// file, which Windows refuses ("Access is denied").
@@ -147,8 +150,8 @@ type ReleaseUsage struct {
 }
 
 // Open opens (creating) a cache rooted at dir with a byte budget (<=0 means
-// unlimited), rebuilding the in-memory index from disk (and cleaning stale
-// temp files from interrupted writes). logger may be nil (slog.Default()).
+// unlimited). Existing entries are discovered on access; Run accounts for the
+// remaining disk contents after listening. logger may be nil (slog.Default()).
 func Open(dir string, budget int64, logger *slog.Logger) (*Cache, error) {
 	if logger == nil {
 		logger = slog.Default()
@@ -177,10 +180,7 @@ func Open(dir string, budget int64, logger *slog.Logger) (*Cache, error) {
 	if err := c.loadPins(); err != nil {
 		return nil, err
 	}
-	if err := c.rebuild(); err != nil {
-		return nil, err
-	}
-	c.evict()
+
 	c.expCond = sync.NewCond(&c.expMu)
 	go c.writePinsLoop()
 	used, b := c.Usage()
@@ -210,7 +210,7 @@ func (c *Cache) Get(releaseID string, segment int) ([]byte, bool) {
 		c.mu.Unlock()
 		return nil, false
 	}
-	r := c.rels[releaseID]
+	r := c.discoverLocked(releaseID, segment)
 	if r == nil {
 		c.metrics.Misses++
 		c.mu.Unlock()
@@ -245,6 +245,9 @@ func (c *Cache) Get(releaseID string, segment int) ([]byte, bool) {
 				c.logger.Warn("remove corrupt segment", "path", path, "err", rerr)
 			}
 		}
+		c.mu.Lock()
+		delete(r.deleting, segment)
+		c.mu.Unlock()
 		return nil, false
 	}
 
@@ -299,7 +302,7 @@ func (c *Cache) Peek(releaseID string, segment, n int) ([]byte, int64, bool) {
 		c.mu.Unlock()
 		return nil, 0, false
 	}
-	r := c.rels[releaseID]
+	r := c.discoverLocked(releaseID, segment)
 	var e *entry
 	if r != nil {
 		e = r.segs[segment]
@@ -312,22 +315,34 @@ func (c *Cache) Peek(releaseID string, segment, n int) ([]byte, int64, bool) {
 	c.mu.Unlock()
 	prefix, err := peekSegment(filepath.Join(dir, segName(segment)), size, n)
 	if err != nil {
+		c.mu.Lock()
+		if r.segs[segment] == e {
+			c.dropLocked(e)
+		}
+		c.mu.Unlock()
+		_ = os.Remove(filepath.Join(dir, segName(segment)))
+		c.mu.Lock()
+		delete(r.deleting, segment)
+		c.mu.Unlock()
 		return nil, 0, false
 	}
 	return prefix, size, true
 }
 
-// Has reports whether the segment is indexed. No disk IO, no recency update.
+// Has reports whether the segment exists, discovering one disk entry if needed.
 func (c *Cache) Has(releaseID string, segment int) bool {
 	if c.shared != nil {
 		return c.shared.has(releaseID, segment)
 	}
+	st := c.stripe(releaseID, segment)
+	st.RLock()
+	defer st.RUnlock()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
 		return false
 	}
-	r := c.rels[releaseID]
+	r := c.discoverLocked(releaseID, segment)
 	return r != nil && r.segs[segment] != nil
 }
 
@@ -540,6 +555,25 @@ func (c *Cache) Remove(releaseID string) error {
 	}
 	c.evictMu.Lock() // a floor measurement must not see these bytes half-freed
 	defer c.evictMu.Unlock()
+	if validKey(releaseID, 0) != nil {
+		return nil
+	}
+	dir := filepath.Join(c.dataDir, releaseDirRel(releaseID))
+	if entries, err := os.ReadDir(dir); err == nil {
+		for _, de := range entries {
+			seg, ok := parseSegName(de.Name())
+			if !ok || de.IsDir() {
+				continue
+			}
+			st := c.stripe(releaseID, seg)
+			st.RLock()
+			c.mu.Lock()
+			c.discoverLocked(releaseID, seg)
+			c.mu.Unlock()
+			st.RUnlock()
+		}
+	}
+
 	c.mu.Lock()
 	if c.closed {
 		c.mu.Unlock()
@@ -704,6 +738,10 @@ func (c *Cache) insertLocked(r *release, seg int, size, nowNs int64) {
 
 // dropLocked removes e from the index and accounting (not from disk).
 func (c *Cache) dropLocked(e *entry) {
+	if e.rel.deleting == nil {
+		e.rel.deleting = make(map[int]bool)
+	}
+	e.rel.deleting[e.seg] = true
 	c.listOf(e).remove(e)
 	e.parked = false
 	e.rel.removeEntry(e)
@@ -841,6 +879,9 @@ func (c *Cache) deleteFiles(victims []*entry) error {
 				errs = append(errs, err)
 			}
 		}
+		c.mu.Lock()
+		delete(e.rel.deleting, e.seg)
+		c.mu.Unlock()
 		st.Unlock()
 	}
 	return errors.Join(errs...)
@@ -942,16 +983,9 @@ func (c *Cache) writePinsFile() error {
 	return nil
 }
 
-// loadPins reads pins.json and removes stale temp files in the cache root. A
+// loadPins reads pins.json. A
 // corrupt pins file is logged and ignored (the cache stays usable).
 func (c *Cache) loadPins() error {
-	if ents, err := os.ReadDir(c.dir); err == nil {
-		for _, de := range ents {
-			if !de.IsDir() && strings.HasSuffix(de.Name(), tmpExt) {
-				c.removeStale(filepath.Join(c.dir, de.Name()))
-			}
-		}
-	}
 	path := filepath.Join(c.dir, pinsFileName)
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -979,113 +1013,112 @@ func (c *Cache) loadPins() error {
 	return nil
 }
 
-func (c *Cache) removeStale(path string) {
-	if err := os.RemoveAll(path); err != nil {
-		c.logger.Warn("remove stale cache file", "path", path, "err", err)
-	} else {
-		c.logger.Debug("removed stale cache file", "path", path)
+// discoverLocked checks only the requested key. The caller holds mu and a
+// stripe lock; no cache or library traversal is allowed on this path.
+func (c *Cache) discoverLocked(id string, seg int) *release {
+	if c.closed || validKey(id, seg) != nil {
+		return nil
 	}
+	r := c.rels[id]
+	if r != nil && (r.segs[seg] != nil || r.deleting[seg]) {
+		return r
+	}
+	dir := filepath.Join(c.dataDir, releaseDirRel(id))
+	path := filepath.Join(dir, segName(seg))
+	info, err := os.Stat(path)
+	if err != nil {
+		return r
+	}
+	stored, err := readReleaseMeta(dir)
+	if err != nil || stored != id || info.Size() < headerSize {
+		_ = os.Remove(path)
+		return r
+	}
+	if _, err := peekSegment(path, info.Size()-headerSize, 0); err != nil {
+		_ = os.Remove(path)
+		return r
+	}
+	if r == nil {
+		r = c.releaseLocked(id)
+		if b, err := os.ReadFile(filepath.Join(dir, "experience.json")); err == nil {
+			_ = json.Unmarshal(b, &r.experience)
+		}
+	}
+	r.metaOK = true
+	c.insertLocked(r, seg, info.Size()-headerSize, info.ModTime().UnixNano())
+	return r
 }
 
-// rebuild walks the data directory once, rebuilding the index with file
-// mtimes as last-used times and cleaning temp files, torn segment files and
-// release directories without valid metadata or segments.
-func (c *Cache) rebuild() error {
-	fans, err := os.ReadDir(c.dataDir)
-	if err != nil {
-		return fmt.Errorf("segcache: open: read %s: %w", c.dataDir, err)
-	}
-	var all []*entry
-	for _, fan := range fans {
-		fanPath := filepath.Join(c.dataDir, fan.Name())
-		if !fan.IsDir() {
-			if strings.HasSuffix(fan.Name(), tmpExt) {
-				c.removeStale(fanPath)
-			}
-			continue
-		}
-		rds, err := os.ReadDir(fanPath)
+// indexDisk runs only after listening. Read directories in bounded batches and
+// yield between entries, so large caches neither delay startup nor flood IO.
+// Correctness never relies on this accounting pass: readers validate on access.
+func (c *Cache) indexDisk(ctx context.Context) {
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	var walk func(string, int)
+	walk = func(dir string, depth int) {
+		f, err := os.Open(dir)
 		if err != nil {
-			c.logger.Warn("skip unreadable cache dir", "path", fanPath, "err", err)
-			continue
+			return
 		}
-		for _, rd := range rds {
-			p := filepath.Join(fanPath, rd.Name())
-			if !rd.IsDir() {
-				if strings.HasSuffix(rd.Name(), tmpExt) {
-					c.removeStale(p)
+		defer f.Close()
+		for {
+			entries, err := f.ReadDir(32)
+			for _, de := range entries {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
 				}
-				continue
-			}
-			all = c.loadReleaseDir(p, filepath.Join(fan.Name(), rd.Name()), all)
-		}
-	}
-	sort.Slice(all, func(i, j int) bool { return all[i].lastUsed < all[j].lastUsed })
-	c.mu.Lock()
-	for _, e := range all {
-		e.rel.pushEntry(e)
-		c.lru.pushFront(e) // oldest first, so the newest ends up at the head
-	}
-	c.mu.Unlock()
-	return nil
-}
+				path := filepath.Join(dir, de.Name())
+				if strings.HasSuffix(de.Name(), tmpExt) && !de.IsDir() {
+					if info, err := de.Info(); err == nil && time.Since(info.ModTime()) > time.Hour {
+						_ = os.Remove(path)
+					}
+					continue
+				}
+				if depth == -1 && de.Name() != dataDirName {
+					continue
+				}
 
-func (c *Cache) loadReleaseDir(dir, rel string, all []*entry) []*entry {
-	des, err := os.ReadDir(dir)
-	if err != nil {
-		c.logger.Warn("skip unreadable release dir", "path", dir, "err", err)
-		return all
-	}
-	id, err := readReleaseMeta(dir)
-	if err != nil || releaseDirRel(id) != rel {
-		c.logger.Warn("removing cache dir without valid metadata", "path", dir, "err", err)
-		c.removeStale(dir)
-		return all
-	}
-	r := &release{id: id, dir: dir, segs: make(map[int]*entry), metaOK: true}
-	if b, err := os.ReadFile(filepath.Join(dir, "experience.json")); err == nil {
-		_ = json.Unmarshal(b, &r.experience)
-	}
-	for _, de := range des {
-		name := de.Name()
-		p := filepath.Join(dir, name)
-		if strings.HasSuffix(name, tmpExt) {
-			c.removeStale(p)
-			continue
+				if depth < 2 && de.IsDir() {
+					walk(path, depth+1)
+					continue
+				}
+				if depth != 2 || de.IsDir() {
+					continue
+				}
+				seg, ok := parseSegName(de.Name())
+				if !ok {
+					continue
+				}
+				id, e := readReleaseMeta(dir)
+				if e != nil || filepath.Join(c.dataDir, releaseDirRel(id)) != dir {
+					continue
+				}
+				st := c.stripe(id, seg)
+				st.RLock()
+				c.mu.Lock()
+				c.discoverLocked(id, seg)
+				c.mu.Unlock()
+				st.RUnlock()
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			c.evict()
+			if err != nil {
+				if err != io.EOF {
+					c.logger.Debug("cache accounting directory", "err", err)
+				}
+				return
+			}
 		}
-		seg, ok := parseSegName(name)
-		if !ok || de.IsDir() {
-			continue
-		}
-		info, err := de.Info()
-		if err != nil {
-			continue // vanished meanwhile
-		}
-		if info.Size() < headerSize {
-			c.removeStale(p)
-			continue
-		}
-		if _, err := peekSegment(p, info.Size()-headerSize, 0); err != nil {
-			c.removeStale(p)
-			continue
-		}
-		mt := info.ModTime().UnixNano()
-		e := &entry{rel: r, seg: seg, size: info.Size() - headerSize, lastUsed: mt, touched: mt}
-		r.segs[seg] = e
-		r.bytes += e.size
-		r.lastUsed = max(r.lastUsed, mt)
-		all = append(all, e)
 	}
-	if len(r.segs) == 0 {
-		c.removeStale(dir)
-		return all
+	walk(c.dir, -1)
+	if ctx.Err() == nil {
+		c.evict()
 	}
-	c.mu.Lock()
-	c.rels[id] = r
-	c.used += r.bytes
-	c.segCount += len(r.segs)
-	c.mu.Unlock()
-	return all
 }
 
 // SetBlockCheck prevents background writers from refilling owner-blocked releases.

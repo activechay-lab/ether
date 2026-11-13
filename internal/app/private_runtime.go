@@ -420,9 +420,6 @@ func (a *App) runSpecialist(ctx context.Context) error {
 	if a.load != nil {
 		background.start(func() { a.load.Run(ctx) })
 	}
-	if a.cache != nil {
-		background.start(func() { a.cache.Run(ctx) })
-	}
 	if err := a.startCluster(ctx); err != nil {
 		return err
 	}
@@ -437,6 +434,10 @@ func (a *App) runSpecialist(ctx context.Context) error {
 		return err
 	}
 	defer stop()
+	if a.cache != nil {
+		background.start(func() { a.cache.Run(ctx) })
+	}
+
 	select {
 	case <-ctx.Done():
 		return a.runResult()
