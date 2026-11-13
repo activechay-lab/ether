@@ -36,6 +36,9 @@ func (m *Manager) preparedResolution(ctx context.Context, s *session, profile co
 	fromResume := false
 	if warm := m.takeWarmResolution(ctx, s.ident, profile, s.caps, prefer, original); warm != nil {
 		res, cached = warm.res, warm.probe
+		if m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
+			res, cached = nil, nil
+		}
 	}
 	if res == nil {
 		res = m.resumeResolution(ctx, s.ident.userID, s.ident.key, profile, s.caps, original)

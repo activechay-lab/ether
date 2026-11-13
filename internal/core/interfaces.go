@@ -569,9 +569,11 @@ type Indexer interface {
 }
 
 type ResolveRequest struct {
-	Title  *Title
-	Client ClientCaps
-	User   *User
+	// PreferVideoCodec softly preserves the representation family during background replacement.
+	PreferVideoCodec string
+	Title            *Title
+	Client           ClientCaps
+	User             *User
 	// PlayedRelease is the release this viewer last played of the title
 	// (the one a resume opens); Variants names Auto after it (additive).
 	PlayedRelease string

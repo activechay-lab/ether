@@ -614,7 +614,7 @@ func flightKey(req core.ResolveRequest, profile core.QualityProfile) string {
 	if len(profile.PreferredLanguages) == 0 && req.User != nil {
 		audio = req.User.AudioLanguages
 	}
-	return fmt.Sprintf("%d|%s|%s|%s|%s|%s|%t|%t|%s", req.Title.Key, profile.Name, strings.Join(ex, ","), capsJSON, profileJSON, req.Prefer, req.PreferredOnly, req.ExactHEVCTranscode, strings.Join(audio, ","))
+	return fmt.Sprintf("%d|%s|%s|%s|%s|%s|%t|%t|%s", req.Title.Key, profile.Name, strings.Join(ex, ","), capsJSON, profileJSON, req.Prefer+"|"+req.PreferVideoCodec, req.PreferredOnly, req.ExactHEVCTranscode, strings.Join(audio, ","))
 }
 
 // Resolve implements core.Resolver. Concurrent calls for the same
@@ -904,6 +904,12 @@ func (s *Service) resolve(ctx context.Context, req core.ResolveRequest, profile 
 		return nil, failed(fmt.Errorf("%q: %w", t.Title, core.ErrNotAvailable))
 	}
 
+	// Preserve normal ranking within each codec family, after policy gates.
+	if req.PreferVideoCodec != "" {
+		sort.SliceStable(cands, func(i, j int) bool {
+			return strings.EqualFold(cands[i].rel.Info.VideoCodec, req.PreferVideoCodec) && !strings.EqualFold(cands[j].rel.Info.VideoCodec, req.PreferVideoCodec)
+		})
+	}
 	// resolvePreferred drops the preferred release from cands in place.
 	var preferredCand *candidate
 	if prefer := cmp.Or(req.Prefer, pinID); prefer != "" {
