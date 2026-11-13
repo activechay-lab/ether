@@ -400,10 +400,10 @@ func (s *Servers) matchHeldMetadata(ctx context.Context, p *pmsPair, md pmsMetad
 		return 0, false, nil
 	}
 	if item, ok := p.items[pmsKey]; ok {
-		if item.ratingKey > 0 {
+		if item.ratingKey > 0 && md.Type == "episode" {
 			return item.ratingKey, false, nil
 		}
-		if s.now().Sub(time.Unix(item.checkedAt, 0)) < pmsNoMatchRetry {
+		if item.ratingKey == 0 && s.now().Sub(time.Unix(item.checkedAt, 0)) < pmsNoMatchRetry {
 			return 0, false, nil
 		}
 	}
@@ -426,12 +426,23 @@ func (s *Servers) matchHeldMetadata(ctx context.Context, p *pmsPair, md pmsMetad
 		s.cacheHeldItem(p, pmsKey, key)
 		return key, false, nil
 	}
+	// A PMS item may expose only its primary Plex GUID. Use the same
+	// verified identity as mobile metadata, with the PMS year as a guard.
+	if s.guid != nil && (md.Type == "movie" || md.Type == "show") {
+		if key, err := s.guid.ExactKey(ctx, md.GUID); err == nil && ((md.Type == "movie" && key.Kind() == core.KindMovie) || (md.Type == "show" && key.Kind() == core.KindShow)) && s.heldYearAgrees(ctx, md, key) {
+			s.cacheHeldItem(p, pmsKey, key)
+			return key, false, nil
+		}
+	}
 	if skipUncached {
 		return 0, false, nil
 	}
 	key, _, err := s.keyFromMetadata(ctx, p, md)
 	if err != nil {
 		return 0, true, err
+	}
+	if key != 0 && !s.heldYearAgrees(ctx, md, key) {
+		key = 0
 	}
 	s.cacheHeldItem(p, pmsKey, key)
 	return key, true, nil
@@ -456,7 +467,7 @@ func (s *Servers) localHeldKey(ctx context.Context, md pmsMetadata) core.RatingK
 		if md.Type == "show" {
 			key, typ = core.ShowKey(n), core.TypeShow
 		}
-		if st, err := stored.StoredTitle(ctx, key); err == nil && st != nil && !st.Adult && st.Type == typ {
+		if st, err := stored.StoredTitle(ctx, key); err == nil && st != nil && !st.Adult && st.Type == typ && md.Year > 0 && st.Year > 0 && int(md.Year) >= st.Year-1 && int(md.Year) <= st.Year+1 {
 			return key
 		}
 	}
@@ -693,4 +704,17 @@ func spannedEpisodes(md pmsMetadata, season, first int) []int {
 		}
 	}
 	return nil
+}
+
+// heldYearAgrees prevents cached or external-ID matches from hiding a namesake.
+func (s *Servers) heldYearAgrees(ctx context.Context, md pmsMetadata, key core.RatingKey) bool {
+	if md.Type != "movie" && md.Type != "show" {
+		return true
+	}
+	stored, ok := s.catalog.(storedTitleCatalog)
+	if !ok || md.Year <= 0 {
+		return false
+	}
+	t, err := stored.StoredTitle(ctx, key)
+	return err == nil && t != nil && t.Year > 0 && int(md.Year) >= t.Year-1 && int(md.Year) <= t.Year+1
 }

@@ -117,6 +117,7 @@ func (f *flexInt) UnmarshalJSON(b []byte) error {
 }
 
 type pmsMetadata struct {
+	Year             flexInt `json:"year"`
 	RatingKey        flexInt `json:"ratingKey"`
 	Type             string  `json:"type"`
 	Title            string  `json:"title"`

@@ -235,101 +235,28 @@ func (s *Service) worker() {
 	}
 }
 
-// repairMappings re-verifies stored identities under the current rule and
-// revisits children whose parentage was not recorded. It alternates the two
-// queues so legacy children get priority without starving other work. A row
-// stored before identity records existed (or under a looser rule) carries no
-// plexguid_identity row; it keeps serving on the hot path while this pass
-// checks its stored guid against the canonical Plex record, granting the
-// identity record when it proves out and dropping it otherwise.
+// repairMappings re-verifies only identities encountered by consumers.
 func (s *Service) repairMappings() {
 	defer s.wg.Done()
-	tick := time.NewTicker(time.Second)
-	defer tick.Stop()
-	// Each queue is an independent keyset scan advanced round-robin so no one
-	// kind of row starves another. Queue 0 re-verifies rows still lacking an
-	// identity record (legacy); queue 1 re-checks children whose parentage was
-	// not recorded; queue 2 re-verifies identity records predating the credit
-	// rule so an already-mapped title whose Plex record carries merged credits
-	// is corrected in place.
-	var after [3]int64
-	var turn int
-	queries := [3]string{
-		`SELECT m.rating_key FROM plexguid_mappings m WHERE m.rating_key>? AND NOT EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid) ORDER BY m.rating_key LIMIT 1`,
-		`SELECT m.rating_key FROM plexguid_mappings m WHERE m.rating_key>? AND m.rating_key>=3000000000000000 AND m.rating_key<5000000000000000 AND m.guid<>'' AND NOT EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key) ORDER BY m.rating_key LIMIT 1`,
-		`SELECT m.rating_key FROM plexguid_mappings m JOIN plexguid_identity i ON i.rating_key=m.rating_key AND i.guid=m.guid WHERE m.rating_key>? AND i.credits_rule=0 AND m.guid<>'' ORDER BY m.rating_key LIMIT 1`,
-	}
-	nextQueue := func(from int) (int, int64, bool) {
-		for i := 0; i < len(queries); i++ {
-			q := (from + i) % len(queries)
-			var key int64
-			err := s.db.QueryRowContext(s.ctx, queries[q], after[q]).Scan(&key)
-			if err == nil {
-				return q, key, true
-			}
-			if err == sql.ErrNoRows {
-				after[q] = 0
-				continue
-			}
-			// A query error is not a reason to touch the cursor.
-			return -1, 0, false
-		}
-		return -1, 0, false
-	}
+	// Sleep while unused, and pace repairs to avoid competing with playback.
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-tick.C:
-		}
-		if s.o.Token == nil || s.o.Token() == "" {
-			continue
-		}
-		// Read-path withheld keys are re-verified before the scan advances:
-		// a client is actively rendering them wrong right now.
-		select {
 		case k := <-s.priority:
 			s.mu.Lock()
 			delete(s.prioQueued, k)
 			s.mu.Unlock()
-			s.queueRepair(k)
-			continue
-		default:
-		}
-		queue, key, ok := nextQueue(turn)
-		if !ok {
-			timer := time.NewTimer(time.Minute)
-			select {
-			case <-s.ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
+			if s.o.Token != nil && s.o.Token() != "" {
+				s.queueRepair(k)
 			}
-			continue
 		}
-		turn = (queue + 1) % len(queries)
-		k := core.RatingKey(key)
-		if !resolvableKey(k) {
-			after[queue] = key
-			continue
-		}
-		s.mu.Lock()
-		if s.pending[k] {
-			s.mu.Unlock()
-			after[queue] = key
-			continue
-		}
-		s.pending[k] = true
-		s.force[k] = true
-		s.mu.Unlock()
+		timer := time.NewTimer(time.Second)
 		select {
-		case s.jobs <- k:
-			after[queue] = key
 		case <-s.ctx.Done():
-			s.done(k)
+			timer.Stop()
 			return
-		default:
-			s.done(k)
+		case <-timer.C:
 		}
 	}
 }
@@ -372,12 +299,8 @@ const identityVerified = `(NOT EXISTS (SELECT 1 FROM plexguid_verified v WHERE v
 // legacy row: one that identityVerified serves only because no record exists.
 const identityExists = `EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid)`
 
-// staleCreditsRule is true when the row carries an identity record written
-// before the credit check (credits_rule=0). Such a record still serves, but the
-// read path enqueues it for priority re-verification so it is checked under the
-// new rule within seconds rather than at the background scan's pace. It is
-// never used to withhold: the read path cannot fetch the canonical record.
-const staleCreditsRule = `EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid AND i.credits_rule=0)`
+// staleCreditsRule marks proofs predating mandatory year verification (rule 2).
+const staleCreditsRule = `EXISTS (SELECT 1 FROM plexguid_identity i WHERE i.rating_key=m.rating_key AND i.guid=m.guid AND i.credits_rule<>2)`
 
 // hasNamesake reports whether the catalogue holds another title that shares
 // this key's name and a near year. The answer is cached per key: it is read on
@@ -415,19 +338,12 @@ func (s *Service) unprovenMapping(ctx context.Context, k core.RatingKey) bool {
 	return unproven
 }
 
-// withheldLegacy reports whether a stored mapping for k must not be served
-// because it is unproven (legacy, or verified before the credit check) on a
-// title the catalogue says has a namesake. The guid may name the other work,
-// so it is withheld from every read path and the key is enqueued for priority
-// re-verification. Proven rows and rows on namesake-free titles keep serving.
+// withheldLegacy withholds every identity not proved under the current rule.
 func (s *Service) withheldLegacy(ctx context.Context, k core.RatingKey) bool {
-	if s == nil || s.o.Namesakes == nil {
+	if s == nil {
 		return false
 	}
 	if !s.unprovenMapping(ctx, k) {
-		return false
-	}
-	if !s.hasNamesake(ctx, k) {
 		return false
 	}
 	s.enqueuePriority(k)
@@ -449,9 +365,7 @@ func (s *Service) recheckStaleCredits(ctx context.Context, k core.RatingKey) {
 	}
 }
 
-// enqueuePriority hands a read-path-withheld key to repairMappings ahead of its
-// background scan. The queue is bounded and deduped; when it is full the key is
-// dropped (the scan still reaches it eventually). No-op when Background is off.
+// enqueuePriority queues bounded, deduplicated lazy repairs. A later read retries a full queue.
 func (s *Service) enqueuePriority(k core.RatingKey) {
 	if s == nil || s.priority == nil || s.ctx.Err() != nil {
 		return
@@ -498,11 +412,7 @@ func (s *Service) queueRepair(k core.RatingKey) bool {
 	}
 }
 
-// Cached is safe for lists: no network requests or credentials are needed.
-// A legacy row whose title has a catalogue namesake is withheld (the guid may
-// name the other work) and its key is enqueued for priority re-verification.
-// A served row whose identity predates the credit check is enqueued for
-// priority re-verification but still served.
+// Cached returns only current proofs and queues older ones without network I/O.
 func (s *Service) Cached(ctx context.Context, k core.RatingKey) string {
 	var guid string
 	var hasIdentity, staleCredits bool
@@ -510,12 +420,9 @@ func (s *Service) Cached(ctx context.Context, k core.RatingKey) string {
 	if guid == "" {
 		return ""
 	}
-	if (!hasIdentity || staleCredits) && s.hasNamesake(ctx, k) {
+	if !hasIdentity || staleCredits {
 		s.enqueuePriority(k)
 		return ""
-	}
-	if staleCredits {
-		s.enqueuePriority(k)
 	}
 	return guid
 }
@@ -585,18 +492,10 @@ func (s *Service) CachedMany(ctx context.Context, keys []core.RatingKey) map[cor
 		}
 		_ = rows.Close()
 		for _, c := range cands {
-			// A legacy row on a namesake title is withheld, never served. A
-			// credit-unchecked row is withheld only on the single-title paths
-			// (Cached, Resolve), where apps fetch Cast & Crew: checking a
-			// namesake per listed row would make lists scale with the library.
-			if !c.hasIdentity && s.hasNamesake(ctx, c.key) {
+			// Old proofs must be re-verified before being exposed.
+			if !c.hasIdentity || c.staleCredits {
 				s.enqueuePriority(c.key)
 				continue
-			}
-			// A served row whose identity predates the credit check is
-			// re-verified soon but still served.
-			if c.staleCredits {
-				s.enqueuePriority(c.key)
 			}
 			out[c.key] = c.guid
 		}
@@ -611,7 +510,7 @@ func (s *Service) freshCached(ctx context.Context, k core.RatingKey) (string, bo
 	if e := s.db.QueryRowContext(ctx, `SELECT m.guid,m.checked_at, `+identityExists+`, `+staleCreditsRule+` FROM plexguid_mappings m WHERE m.rating_key=? AND (m.guid='' OR `+identityVerified+`) AND (m.rating_key<3000000000000000 OR m.rating_key>=5000000000000000 OR m.guid='' OR EXISTS (SELECT 1 FROM plexguid_parentage p WHERE p.rating_key=m.rating_key))`, int64(k)).Scan(&cached, &at, &hasIdentity, &staleCredits); e == nil && time.Since(time.Unix(at, 0)) < recheckInterval {
 		// An unproven row on a namesake title is not fresh: it is withheld
 		// until re-verified, which either proves the guid or drops it.
-		if cached != "" && (!hasIdentity || staleCredits) && s.hasNamesake(ctx, k) {
+		if cached != "" && (!hasIdentity || staleCredits) {
 			s.enqueuePriority(k)
 			return "", false
 		}
@@ -716,7 +615,7 @@ func (s *Service) storeMappingIdentity(ctx context.Context, k core.RatingKey, id
 		return err
 	}
 	if verified {
-		if _, err = tx.ExecContext(ctx, `INSERT INTO plexguid_identity(rating_key,guid,tmdb,title,year,credits_rule) VALUES(?,?,?,?,?,1) ON CONFLICT(rating_key) DO UPDATE SET guid=excluded.guid,tmdb=excluded.tmdb,title=excluded.title,year=excluded.year,credits_rule=1`, int64(k), guid, id.TMDB, id.Title, id.Year); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO plexguid_identity(rating_key,guid,tmdb,title,year,credits_rule) VALUES(?,?,?,?,?,2) ON CONFLICT(rating_key) DO UPDATE SET guid=excluded.guid,tmdb=excluded.tmdb,title=excluded.title,year=excluded.year,credits_rule=2`, int64(k), guid, id.TMDB, id.Title, id.Year); err != nil {
 			return err
 		}
 	}
@@ -777,6 +676,9 @@ func (s *Service) resolve(ctx context.Context, k core.RatingKey, useCache bool) 
 		return "", nil
 	}
 	if useCache {
+		if s.unprovenMapping(ctx, k) {
+			return s.reverify(ctx, k)
+		}
 		if cached, ok := s.freshCached(ctx, k); ok {
 			return cached, nil
 		}
@@ -1020,7 +922,7 @@ func (s *Service) verifyItems(ctx context.Context, k core.RatingKey, kind, guid 
 		// TMDB and Plex years can differ by one (festival vs release); a
 		// namesake from another year cannot. Where Ether has the local year,
 		// it is the discriminator; the title must also agree.
-		if li.year > 0 && item.Year > 0 && (item.Year < li.year-1 || item.Year > li.year+1) {
+		if li.year <= 0 || item.Year <= 0 || item.Year < li.year-1 || item.Year > li.year+1 {
 			continue
 		}
 		// When the canonical record and the local catalogue both name the

@@ -134,6 +134,8 @@ func TestSameTitleDifferentYearNotMatched(t *testing.T) {
 	}{
 		{"same title, different year", "Runner", 2026, canonical{"Runner", 1962}, false},
 		{"title with release year, different year", "Runner (2026)", 2026, canonical{"Runner", 1962}, false},
+		{"missing provider year", "Runner", 2026, canonical{"Runner", 0}, false},
+		{"missing local year", "Runner", 0, canonical{"Runner", 2026}, false},
 		{"same title and year", "Runner", 2026, canonical{"Runner", 2026}, true},
 		{"release-year tolerance one year", "Runner", 2026, canonical{"Runner", 2025}, true},
 		{"title with year suffix, same year", "Runner (2026)", 2026, canonical{"Runner", 2026}, true},
@@ -156,6 +158,17 @@ func TestSameTitleDifferentYearNotMatched(t *testing.T) {
 			defer srv.Close()
 			s := New(db, Options{BaseURL: srv.URL, Token: func() string { return "fixture" }})
 			defer s.Close()
+			// Stored identities from the old rule must be withheld even if no
+			// second namesake exists in Ether's catalogue, then proved lazily.
+			if _, err = db.Exec(`INSERT INTO plexguid_mappings(rating_key,guid,checked_at) VALUES(?,?,?)`, int64(core.MovieKey(770)), guid, time.Now().Unix()); err != nil {
+				t.Fatal(err)
+			}
+			if s.Cached(ctx, core.MovieKey(770)) != "" || len(s.CachedMany(ctx, []core.RatingKey{core.MovieKey(770)})) != 0 {
+				t.Fatal("unproven identity served")
+			}
+			if _, err = s.ExactKey(ctx, guid); err == nil {
+				t.Fatal("unproven reverse identity served")
+			}
 			got, err := s.Resolve(ctx, core.MovieKey(770))
 			if err != nil {
 				t.Fatal(err)
@@ -179,7 +192,7 @@ func TestSameTitleDifferentYearNotMatched(t *testing.T) {
 // blank a large library's plex:// guids. Resolve re-verifies it under the
 // stricter rule: a wrong legacy identity is dropped, a right one gains its
 // identity record and keeps serving.
-func TestLegacyRowServesUntilRepairDropsWrongOne(t *testing.T) {
+func TestLegacyRowWithheldUntilRepairDropsWrongOne(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.OpenMemory(ctx)
 	if err != nil {
@@ -205,12 +218,12 @@ func TestLegacyRowServesUntilRepairDropsWrongOne(t *testing.T) {
 	}
 	s := New(db, Options{})
 	defer s.Close()
-	// Legacy rows serve on the hot path before any repair.
-	if got := s.Cached(ctx, core.MovieKey(770)); got != legacyBad {
-		t.Fatalf("legacy wrong row not served before repair: %q", got)
+	// Legacy rows are withheld until canonical verification.
+	if got := s.Cached(ctx, core.MovieKey(770)); got != "" {
+		t.Fatalf("legacy wrong row served before repair: %q", got)
 	}
-	if got := s.Cached(ctx, core.MovieKey(550)); got != legacyGood {
-		t.Fatalf("legacy right row not served before repair: %q", got)
+	if got := s.Cached(ctx, core.MovieKey(550)); got != "" {
+		t.Fatalf("legacy right row served before repair: %q", got)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
