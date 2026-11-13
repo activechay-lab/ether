@@ -3,13 +3,15 @@ package core
 // FrontendHostPolicy contains host integration choices supplied by a frontend.
 // Protocol names select wiring only; shared services consume these options.
 type FrontendHostPolicy struct {
-	ProfileQualityEvaluation bool
-	InferBuffering           bool
-	PlaybackTelemetry        bool
-	LegacySessionIdentity    bool
-	ProbeLiveInput           bool
-	BestEffortLiveStart      bool
-	PublicContentTags        bool
+	// AutomaticSubtitleSelection declares server-side selection of newly attached tracks.
+	AutomaticSubtitleSelection bool
+	ProfileQualityEvaluation   bool
+	InferBuffering             bool
+	PlaybackTelemetry          bool
+	LegacySessionIdentity      bool
+	ProbeLiveInput             bool
+	BestEffortLiveStart        bool
+	PublicContentTags          bool
 
 	ExternalIdentity           bool
 	NativePlaybackCapabilities bool

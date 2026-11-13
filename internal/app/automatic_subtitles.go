@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/frontend"
 	"github.com/braedonsaunders/ether/internal/sessions"
 	"github.com/braedonsaunders/ether/internal/subtitles"
 	"github.com/braedonsaunders/ether/internal/trackprefs"
@@ -14,10 +15,6 @@ import (
 // worker. No prepare/detail/prefetch path calls it.
 func (a *App) automaticSubtitleWork(ctx context.Context, b *sessions.Broker, start sessions.PlayingSubtitleSession) {
 	if a.subtitles == nil || a.playback == nil || a.trackprefs == nil || a.db == nil || !a.cfg.Read().OpenSubtitles.AutomaticPreferred {
-		return
-	}
-	if a.automaticSubtitleClientSupported == nil || !a.automaticSubtitleClientSupported(start.Access) {
-		a.log.Info("automatic subtitles skipped", "reason", "client_selection_unverified", "protocol", start.Access.Protocol)
 		return
 	}
 	lease, err := a.playback.LeaseSubtitleSource(ctx, start.SourceID, start.SourceRevision)
@@ -86,6 +83,23 @@ func (a *App) automaticSubtitleWork(ctx context.Context, b *sessions.Broker, sta
 		}
 		return subtitles.AutomaticPlayback{Title: title, Viewer: start.Access.Viewer.ID, Playing: true, Manual: manual, Languages: rules.SubtitleLanguages, UnderstoodAudio: understood, SelectedAudio: audio, Preferences: subtitles.Preferences{Mode: rules.SubtitleMode, Style: rules.SubtitleStyle}, Streams: source.Info.Streams, Release: release}, nil
 	}
+	selection := "server_selection_unsupported"
+	var selectTrack func(core.StreamInfo) error
+	if frontendHostPolicy(start.Access.Protocol).AutomaticSubtitleSelection && a.frontends != nil {
+		if inst, ok := a.frontends.registry.Instance(start.Access.Protocol); ok {
+			if selector, ok := inst.Handler().(interface {
+				SelectAutomaticSubtitle(frontend.SessionAccess, core.RatingKey, core.StreamInfo) error
+			}); ok {
+				selectTrack = func(track core.StreamInfo) error {
+					return selector.SelectAutomaticSubtitle(start.Access, start.Item, track)
+				}
+			} else {
+				selection = "frontend_selection_handler_unavailable"
+			}
+		} else {
+			selection = "frontend_not_mounted"
+		}
+	}
 	target := subtitles.AutomaticTarget{Current: current, Attach: func(ctx context.Context, expected subtitles.AutomaticPlayback, track core.StreamInfo) error {
 		latest, err := current(ctx)
 		if err != nil {
@@ -95,7 +109,21 @@ func (a *App) automaticSubtitleWork(ctx context.Context, b *sessions.Broker, sta
 			return core.ErrSourceChanged
 		}
 		err = lease.WithPublication(ctx, func(attach func(core.StreamInfo) (core.StreamInfo, error)) error {
-			return intents.Publish(ctx, start.Access.Viewer.ID, start.Item, intent, func() error { var err error; track, err = attach(track); return err })
+			return intents.Publish(ctx, start.Access.Viewer.ID, start.Item, intent, func() error {
+				var err error
+				track, err = attach(track)
+				if err != nil {
+					return err
+				}
+				if selectTrack != nil {
+					if err = selectTrack(track); err != nil {
+						selection = "server_selection_failed"
+					} else {
+						selection = "server_selected"
+					}
+				}
+				return nil
+			})
 		})
 		if err != nil {
 			return err
@@ -105,7 +133,7 @@ func (a *App) automaticSubtitleWork(ctx context.Context, b *sessions.Broker, sta
 			access.FFmpeg = a.transcoder.FFmpegPath()
 		}
 		a.subtitles.StartCorrection(lease.Context, latest.Title, track.ExternalURL, access)
-		a.log.Info("automatic subtitle attached", "viewer", start.Access.Viewer.ID, "key", start.Item, "protocol", start.Access.Protocol, "stream", track.Index, "selection", "client_refresh_required")
+		a.log.Info("automatic subtitle attached", "viewer", start.Access.Viewer.ID, "key", start.Item, "protocol", start.Access.Protocol, "stream", track.Index, "selection", selection)
 		return nil
 	}}
 	if err = a.subtitles.RunAutomatic(ctx, subtitles.NewAutomaticBudget(a.db), target); err != nil && ctx.Err() == nil {
