@@ -1070,7 +1070,7 @@ func escapeFilterValue(v string) string {
 // inside segmented Matroska. Burned and non-Matroska decisions keep the
 // sidecar path. A nil return means the run stays subtitle-free (-sn).
 func matroskaTextSubtitle(s runSpec) *core.StreamInfo {
-	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles || s.Decision.AndroidMatroskaHLS {
+	if s.Decision.Container != ContainerMatroska || s.Decision.BurnSubtitles {
 		return nil
 	}
 	sub := findStream(s.Info, s.Decision.SubtitleStream, "subtitle")

@@ -852,8 +852,7 @@ const (
 )
 
 type Decision struct {
-	// AndroidMatroskaHLS selects the measured Plex Android HLS transport
-	// and sidecar subtitle contract.
+	// AndroidMatroskaHLS selects the measured Plex Android HLS transport.
 	AndroidMatroskaHLS bool `json:"androidMatroskaHLS,omitempty"`
 
 	Enhancement VideoEnhancement `json:"enhancement,omitempty"`

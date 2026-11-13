@@ -303,8 +303,8 @@ func androidImageSubtitle(pr *Request, info frontend.MediaInfo, opts frontend.De
 }
 
 // keepsSelectedText retains the selected track for clients rendering text
-// themselves. Apple Matroska clients read the muxed track; Android HLS uses
-// /library/streams sidecars, including when it requests subtitles=none.
+// themselves. Matroska clients read the selected muxed text track, including when
+// Android requests subtitles=none.
 func keepsSelectedText(p *playRequest, info frontend.MediaInfo) bool {
 	if p.protocol == frontend.ProtocolDASH {
 		return false
@@ -1245,15 +1245,6 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 			return st, true
 		}
 		text := textSidecarCodec(st.Codec)
-		if dec.AndroidMatroskaHLS && dec.Container == frontend.ContainerMatroska && text && !dec.BurnSubtitles && dec.SubtitleStream == src.Index {
-			// Android's copied Matroska HLS keeps text outside the mux.
-			// Preserve its sidecar even with subtitles=none (client renders).
-			st.Decision, st.Location, st.Format = "copy", "sidecar", st.Codec
-			if st.Key == "" {
-				st.Key = "/library/streams/" + strconv.FormatInt(st.ID, 10)
-			}
-			return st, true
-		}
 		// Other Matroska clients read the selected text track from the
 		// segments even when they request subtitles=none.
 		inSegments := text && dec.Container == frontend.ContainerMatroska && !dec.BurnSubtitles && dec.SubtitleStream >= 0 && dec.SubtitleStream == src.Index
@@ -1301,7 +1292,7 @@ func applyStreamDecision(st model.Stream, src frontend.StreamInfo, dec frontend.
 		// not request a sidecar. The transcoder muxes that track on the
 		// same clock as the video; a sidecar key would describe a file
 		// this player never opens.
-		if st.Location == "sidecar" && dec.Container == frontend.ContainerMatroska && !dec.AndroidMatroskaHLS && textSidecarCodec(st.Codec) && !dec.BurnSubtitles {
+		if st.Location == "sidecar" && dec.Container == frontend.ContainerMatroska && textSidecarCodec(st.Codec) && !dec.BurnSubtitles {
 			st.Decision = "copy"
 			st.Location = "segments-av"
 			st.Key = ""
