@@ -782,11 +782,6 @@ export function IndexerList({
                   }
                   control={<Badge variant="outline">{siteProtocolLabel(draft.protocol)}</Badge>}
                 />
-                <BoolRow
-                  label={t("Enabled")}
-                  value={draft.enabled}
-                  onChange={(v) => set({ enabled: v })}
-                />
               </SettingsSection>
             ) : stremio ? (
               <SettingsSection title={t("Addon")}>
@@ -818,11 +813,6 @@ export function IndexerList({
                     </AlertDescription>
                   </Alert>
                 ) : null}
-                <BoolRow
-                  label={t("Enabled")}
-                  value={draft.enabled}
-                  onChange={(v) => set({ enabled: v })}
-                />
               </SettingsSection>
             ) : zilean ? (
               <SettingsSection title={t("Instance")}>
@@ -837,11 +827,6 @@ export function IndexerList({
                   )}
                   error={errors.url}
                   onChange={(v) => set({ url: v })}
-                />
-                <BoolRow
-                  label={t("Enabled")}
-                  value={draft.enabled}
-                  onChange={(v) => set({ enabled: v })}
                 />
               </SettingsSection>
             ) : (
@@ -885,11 +870,6 @@ export function IndexerList({
                       onChange={(v) => set({ apiKey: v })}
                     />
                   </SettingsRow>
-                  <BoolRow
-                    label={t("Enabled")}
-                    value={draft.enabled}
-                    onChange={(v) => set({ enabled: v })}
-                  />
                 </SettingsSection>
                 <SettingsSection
                   title={t("Client identity")}
