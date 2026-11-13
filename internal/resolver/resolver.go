@@ -1608,6 +1608,8 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 			reason = "blocked hardcoded subtitles"
 		} else if s.rejectedFor(t.Key, rel) {
 			reason = "release rejected for this title"
+		} else if !pinned && regionalPlatformContradiction(rel, t) {
+			reason = "regional platform contradicts title identity"
 		} else if !pinned && namesake && episodeNamesakeConflict(rel, t, sreq) {
 			reason = "conflicting namesake identity"
 		} else if !pinned && corroborated && releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year) == 0 && !episodeIdentityEvidence(rel, sreq) {
