@@ -843,6 +843,18 @@ func (b *Broker) h264EncoderVerified() bool {
 }
 
 func (b *Broker) decideProfile(ps *core.PlaySession, req frontend.PlanRequest) (core.Decision, error) {
+	// The progressive client renders text outside the video. Keep the user's
+	// selection in the plan, but never ask the video decision to burn it in.
+	if ps != nil {
+		for _, index := range progressiveTextTracks(string(req.Protocol), req.Caps, ps.Info) {
+			if req.Intent.Options.SubtitleStream == index {
+				req.Intent.Options.SubtitleStream = -1
+				req.Intent.Options.BurnSubtitles = false
+				break
+			}
+		}
+	}
+
 	req.Caps = applyProfileRangeCaps(req.Caps)
 	r := DecisionRequest{Session: ps, Caps: req.Caps, Options: req.Intent.Options, PreferRemux: req.Intent.PreferRemux, PreserveSourceOnFailure: true}
 	d, err := Decide(b.deps.Playback, b.deps.Transcoder, r)
