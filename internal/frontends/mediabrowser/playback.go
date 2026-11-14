@@ -496,6 +496,25 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 			if channel != "" || (plan.Decision.Kind != "directplay" && ((i.protocol == "jellyfin" && intent.DeclaredCaps) || plan.Decision.Kind != "copy" || !plan.Decision.AudioCopy)) {
 				format = frontend.StreamHLS
 			}
+			// The progressive client requires an active playback demuxer. A
+			// direct-file plan becomes HLS (copy remux where codecs allow it),
+			// so all embedded text rides the same input read as the picture.
+			if i.protocol == "jellyfin" && channel == "" && format == frontend.StreamDirect && (plan.Media.Size == 0 || plan.Media.Size > 32<<20) {
+				progressive := false
+				for _, p := range body.DeviceProfile.SubtitleProfiles {
+					if p.Format == "ether-progressive-vtt" {
+						progressive = true
+					}
+				}
+				if progressive {
+					for _, track := range plan.Media.Streams {
+						if track.Type == "subtitle" && !track.External && (track.Codec == "subrip" || track.Codec == "srt" || track.Codec == "webvtt") {
+							format = frontend.StreamHLS
+							break
+						}
+					}
+				}
+			}
 			url, err := i.host.Sessions.StartStream(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID, frontend.StreamRequest{Format: format, Position: intent.Position})
 			if err != nil && format == frontend.StreamHLS && staticPlayable {
 				url, err = i.host.Sessions.StartStream(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID, frontend.StreamRequest{Format: frontend.StreamDirect, Position: intent.Position})
