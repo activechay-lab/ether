@@ -119,8 +119,9 @@ func (b *addonBackend) Search(ctx context.Context, req core.SearchRequest, reser
 	}
 	b.s.mu.RLock()
 	anime := b.s.anime
+	specials := b.s.specials
 	b.s.mu.RUnlock()
-	look, ok := stremio.LookupStreams(ctx, streamManifest(rec.Manifest), req, anime)
+	look, ok := stremio.LookupStreams(ctx, streamManifest(rec.Manifest), req, anime, specials)
 	if !ok {
 		return nil, nil
 	}
@@ -305,7 +306,7 @@ func searchHints(req core.SearchRequest) map[string]string {
 	if req.Year > 0 {
 		q["year"] = strconv.Itoa(req.Year)
 	}
-	if req.Season > 0 {
+	if req.Season > 0 || (req.Type == core.TypeEpisode && req.Episode > 0) {
 		q["season"] = strconv.Itoa(req.Season)
 	}
 	if req.Episode > 0 {

@@ -681,6 +681,11 @@ func isExtra(p string) bool {
 // ChooseFile picks the main video file of a torrent: for a target episode
 // the largest file whose name matches it, else the largest video.
 func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
+	if target != nil && target.Season == 0 && target.AddonSpecialEpisode > 0 {
+		copy := *target
+		copy.Episode = target.AddonSpecialEpisode
+		target = &copy
+	}
 	var videos []File
 	identityMismatch := false
 	for _, f := range files {
@@ -703,6 +708,17 @@ func ChooseFile(files []File, target *core.ReleaseTarget) (File, error) {
 	sort.SliceStable(videos, func(i, j int) bool { return videos[i].Size > videos[j].Size })
 	if target == nil || target.Episode <= 0 {
 		return videos[0], nil
+	}
+	if target.Season == 0 {
+		for _, f := range videos {
+			base := path.Base(strings.ReplaceAll(f.Path, "\\", "/"))
+			info := releaseparse.Parse(base)
+			if releaseparse.EpisodeMatches(info, 0, target.Episode) ||
+				(len(info.Seasons) == 0 && len(info.Episodes) == 0 && len(info.AbsoluteEpisodes) == 0 && releaseparse.SpecialTitleEvidence(base, target.EpisodeTitle, target.ShowTitles...)) {
+				return f, nil
+			}
+		}
+		return File{}, fmt.Errorf("debrid: no verified special S00E%02d: %w", target.Episode, core.ErrNotAvailable)
 	}
 	// Pass 1: explicit season + episode match on base name, or on full path
 	// when the base name carries no episode number of its own.
@@ -802,7 +818,7 @@ func chosenFileMatchesTarget(filePath string, target *core.ReleaseTarget) bool {
 	if target == nil || target.Episode <= 0 || filePath == "" {
 		return true
 	}
-	if classicPackEpisodeMatches(filePath, target.Season, target.Episode) {
+	if target.Season != 0 && classicPackEpisodeMatches(filePath, target.Season, target.Episode) {
 		return true
 	}
 	_, err := ChooseFile([]File{{Path: filePath, Size: 1}}, target)
@@ -860,8 +876,13 @@ func fileIdentityMatches(f File, target *core.ReleaseTarget) bool {
 	if idConflict {
 		return false
 	}
+	if target.Season == 0 && target.Episode > 0 {
+		if !releaseparse.SpecialMatches(f.Path, target.EpisodeTitle, target.SpecialTitles, target.ShowTitles) {
+			return false
+		}
+	}
 	full := strings.NewReplacer("/", " ", "\\", " ").Replace(f.Path)
 	info := releaseparse.Parse(full)
 	year := releaseparse.EpisodeSeriesYear(full, info.Year)
-	return releaseparse.SeriesYearMatches(year, target.ShowYear) && (year != 0 || idMatch || releaseparse.EpisodeTitleMatches(path.Base(strings.ReplaceAll(f.Path, "\\", "/")), target.EpisodeTitle))
+	return releaseparse.SeriesYearMatches(year, target.ShowYear) && (target.Season == 0 || year != 0 || idMatch || releaseparse.EpisodeTitleMatches(path.Base(strings.ReplaceAll(f.Path, "\\", "/")), target.EpisodeTitle))
 }

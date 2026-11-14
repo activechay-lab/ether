@@ -413,7 +413,7 @@ func EpisodeMatches(parsed core.ReleaseInfo, season, episode int) bool {
 	if parsed.FullSeason || len(parsed.Episodes) == 0 {
 		return false
 	}
-	seasonOK := len(parsed.Seasons) == 0
+	seasonOK := len(parsed.Seasons) == 0 && season != 0
 	for _, s := range parsed.Seasons {
 		if s == season {
 			seasonOK = true

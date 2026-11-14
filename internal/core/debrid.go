@@ -30,12 +30,16 @@ type ReleaseTarget struct {
 	AbsoluteEpisode int `json:"absoluteEpisode,omitempty"`
 	// Cour and CourEpisode identify the cour (part) and relative episode
 	// within a multi-cour anime season pack (0 when unmapped).
-	Cour         int    `json:"cour,omitempty"`
-	CourEpisode  int    `json:"courEpisode,omitempty"`
-	Season       int    `json:"season,omitempty"`
-	Episode      int    `json:"episode,omitempty"`
-	ShowYear     int    `json:"showYear,omitempty"`
-	EpisodeTitle string `json:"episodeTitle,omitempty"`
+	Cour          int      `json:"cour,omitempty"`
+	CourEpisode   int      `json:"courEpisode,omitempty"`
+	Season        int      `json:"season,omitempty"`
+	Episode       int      `json:"episode,omitempty"`
+	ShowYear      int      `json:"showYear,omitempty"`
+	EpisodeTitle  string   `json:"episodeTitle,omitempty"`
+	ShowTitles    []string `json:"showTitles,omitempty"`
+	SpecialTitles []string `json:"specialTitles,omitempty"`
+	// AddonSpecialEpisode is the verified IMDb number before catalogue renumbering.
+	AddonSpecialEpisode int `json:"addonSpecialEpisode,omitempty"`
 	// PackID is the untargeted release ID of a FullSeason pack before
 	// TargetReleaseID derives the per-episode ID (additive).
 	PackID string `json:"packId,omitempty"`
