@@ -3,7 +3,10 @@ package livetv
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -14,17 +17,58 @@ import (
 
 type programmeSourcePlayback struct {
 	fakePlayback
-	caps []core.ClientCaps
+	caps     []core.ClientCaps
+	sourceMu sync.Mutex
+	ready    map[core.RatingKey]string
+	delays   map[core.RatingKey]time.Duration
+	starts   map[core.RatingKey]time.Time
 }
 
 func (p *programmeSourcePlayback) PrepareChannel(ctx context.Context, u *core.User, k core.RatingKey, c core.ClientCaps, g string) (*core.PlaySession, error) {
+	p.sourceMu.Lock()
 	p.caps = append(p.caps, c)
+	if p.starts == nil {
+		p.starts = map[core.RatingKey]time.Time{}
+	}
+	p.starts[k] = time.Now()
+	delay := p.delays[k]
+	p.sourceMu.Unlock()
+	if delay > 0 {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
 	ps, err := p.fakePlayback.PrepareChannel(ctx, u, k, c, g)
-	if k == core.MovieKey(2) {
+	if k != core.MovieKey(1) {
 		ps.Info.Duration = 2 * time.Hour
 	}
-	ps.Resolution = &core.Resolution{Release: core.Release{ID: ps.ID}}
+	id := ps.ID
+	if c.BroadcastReadyRelease != "" {
+		id = c.BroadcastReadyRelease
+	}
+	ps.Resolution = &core.Resolution{Release: core.Release{ID: id}}
 	return ps, err
+}
+
+func (p *programmeSourcePlayback) InputURL(id string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, ps := range p.prepared {
+		if ps.ID == id {
+			return "http://source/movie/" + strconv.FormatUint(uint64(ps.Key), 10)
+		}
+	}
+	return ""
+}
+
+func (p *programmeSourcePlayback) ChannelReadyRelease(_ context.Context, _ *core.User, k core.RatingKey, _ core.ClientCaps) (string, bool) {
+	if p.ready == nil {
+		return "ready-2", k == core.MovieKey(2)
+	}
+	id, ok := p.ready[k]
+	return id, ok
 }
 
 type programmeSourceDecoder struct {
@@ -44,37 +88,58 @@ func (d *programmeSourceDecoder) Next(ctx context.Context) (transcode.RawFrame, 
 	return d.broadcastFakeDecoder.Next(ctx)
 }
 func TestProgrammeSourceRecovery(t *testing.T) {
-	t.Run("first picture admission reaches substitution", func(t *testing.T) {
+	t.Run("cold acquisition races ready sources while title airs", func(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			origin := time.Now()
 			f := smallBroadcastFormat()
-			pb := &programmeSourcePlayback{}
+			pb := &programmeSourcePlayback{ready: map[core.RatingKey]string{core.MovieKey(2): "verified-ghost", core.MovieKey(3): "verified-diehard"}, delays: map[core.RatingKey]time.Duration{core.MovieKey(1): 13 * time.Second, core.MovieKey(2): time.Second, core.MovieKey(3): 6 * time.Second}}
 			s := testService(t, Options{Playback: pb})
 			c := testChannel()
 			c.Items[1].DurationMS = 2 * 60 * 60 * 1000
-			c.Fallback = []Item{c.Items[1]}
+			c.Fallback = []Item{c.Items[1], {Key: core.MovieKey(3), Title: "Third", DurationMS: 2 * 60 * 60 * 1000}, {Key: core.MovieKey(4), Title: "Unverified", DurationMS: 2 * 60 * 60 * 1000}}
 			runner := &broadcastFakeRunner{decoder: func(ctx context.Context, r transcode.DecoderRequest) (transcode.Decoder, error) {
-				return &programmeSourceDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: f, closed: make(chan struct{}), value: 90}, life: ctx, blocked: strings.HasSuffix(r.InputURL, "/1") || strings.HasSuffix(r.InputURL, "/2")}, nil
+				blocked := strings.HasSuffix(r.InputURL, "/"+strconv.FormatUint(uint64(core.MovieKey(2)), 10))
+				return &programmeSourceDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: f, closed: make(chan struct{}), value: 90}, life: ctx, blocked: blocked}, nil
 			}}
-			p := &scheduleBroadcastPlanner{s: s, channel: c, user: core.User{ID: 1, IsOwner: true}, format: f, runner: runner}
+			p := &scheduleBroadcastPlanner{s: s, channel: c, user: core.User{ID: 1, IsOwner: true}, format: f, runner: runner, joinAt: origin.Add(4 * time.Second)}
 			prog := Programme{ID: "scheduled", ChannelID: c.ID, Start: origin.Add(-18 * time.Minute), End: origin.Add(time.Hour), Item: c.Items[0]}
-			d, release, err := p.programme(prog).open(t.Context())
+			plan := p.programme(prog)
+			look := titleStartupPlanner{coldHoldPlanner{elementBroadcastPlanner: elementBroadcastPlanner{plan}, screenPlan: broadcastPlan{id: "offair", open: coldHoldOpen(f, 10, 0)}, card: broadcastPlan{id: "title", element: "tonight", open: coldHoldOpen(f, 30, 0)}}}
+			b, err := newBroadcast(t.Context(), runner, look, f)
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer d.Close()
-			defer release()
-			if time.Since(origin) > 20*time.Second {
-				t.Fatal("substitution missed deadline")
+			if _, err = b.addRendition(t.Context(), "main", core.Decision{}); err != nil {
+				t.Fatal(err)
 			}
-			if len(pb.prepared) != 3 || pb.prepared[2].Key != c.Items[1].Key {
-				t.Fatalf("did not substitute after stalled releases: %+v", pb.prepared)
+			b.start()
+			time.Sleep(12 * time.Second)
+			synctest.Wait()
+			b.close()
+			for _, key := range []core.RatingKey{core.MovieKey(1), core.MovieKey(2), core.MovieKey(3)} {
+				if at, ok := pb.starts[key]; !ok || at.Sub(origin) > 200*time.Millisecond {
+					t.Fatalf("source %d was not acquired at tune time: %s", key, at)
+				}
 			}
-			if len(pb.caps[1].BroadcastExclude) != 1 || pb.caps[1].BroadcastExclude[0] != "1" {
-				t.Fatal("stalled release was not excluded")
+			if _, ok := pb.starts[core.MovieKey(4)]; ok {
+				t.Fatal("unverified substitute started discovery")
 			}
-			if _, err = d.Next(t.Context()); err != nil {
-				t.Fatalf("opening deadline canceled admitted decoder: %v", err)
+			first := time.Duration(-1)
+			for _, frame := range runner.encoders[0].snapshot() {
+				if frame.Video[0] == 10 {
+					t.Fatal("off air during cold race")
+				}
+				if frame.Video[0] == 90 && first < 0 {
+					first = frame.OutputTime.Sub(origin)
+				}
+			}
+			if first < 4*time.Second || first > 12*time.Second {
+				t.Fatalf("first programme picture %s: want title end + <=8s", first)
+			}
+			pb.mu.Lock()
+			defer pb.mu.Unlock()
+			if len(pb.stopped) != 2 {
+				t.Fatalf("losing source or winner leaked: stops=%v", pb.stopped)
 			}
 		})
 	})
@@ -88,8 +153,8 @@ func TestProgrammeSourceRecovery(t *testing.T) {
 			c.Items[1].DurationMS = 2 * 60 * 60 * 1000
 			c.Fallback = []Item{c.Items[1]}
 			runner := &broadcastFakeRunner{decoder: func(ctx context.Context, r transcode.DecoderRequest) (transcode.Decoder, error) {
-				if strings.HasSuffix(r.InputURL, "/1") || strings.HasSuffix(r.InputURL, "/2") {
-					t.Fatal("scheduled source sought at EOF")
+				if strings.HasSuffix(r.InputURL, "/"+strconv.FormatUint(uint64(core.MovieKey(1)), 10)) {
+					return nil, fmt.Errorf("scheduled source sought at EOF")
 				}
 				return &programmeSourceDecoder{broadcastFakeDecoder: &broadcastFakeDecoder{format: f, closed: make(chan struct{}), value: 90}, life: ctx}, nil
 			}}
@@ -101,7 +166,7 @@ func TestProgrammeSourceRecovery(t *testing.T) {
 			}
 			defer d.Close()
 			defer release()
-			if pb.prepared[len(pb.prepared)-1].Key != c.Items[1].Key {
+			if d.(*overlayDecoder).policy.programme.Item.Key != c.Items[1].Key {
 				t.Fatal("duration-length offset did not substitute")
 			}
 		})
@@ -110,7 +175,7 @@ func TestProgrammeSourceRecovery(t *testing.T) {
 		synctest.Test(t, func(t *testing.T) {
 			now := time.Now()
 			f := smallBroadcastFormat()
-			pb := &programmeSourcePlayback{}
+			pb := &programmeSourcePlayback{ready: map[core.RatingKey]string{}}
 			s := testService(t, Options{Playback: pb})
 			c := testChannel()
 			var offsets []time.Duration

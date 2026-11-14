@@ -211,8 +211,9 @@ type User struct {
 type ClientCaps struct {
 	// Broadcast inputs are selected for the channel rendition, independently
 	// of viewer quality preferences. Exclusions last only for this airing.
-	BroadcastBitrateKbps int      `json:"-"`
-	BroadcastExclude     []string `json:"-"`
+	BroadcastBitrateKbps  int      `json:"-"`
+	BroadcastExclude      []string `json:"-"`
+	BroadcastReadyRelease string   `json:"-"`
 
 	// Playback telemetry is supplied by the adapter.
 	InferBuffering      bool `json:"inferBuffering,omitempty"`

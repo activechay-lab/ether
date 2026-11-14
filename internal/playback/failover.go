@@ -31,6 +31,9 @@ var errRequireRemux = errors.New("playback: failover requires remux")
 // the warm entry, else the stored resume release when it was resolved for
 // the same profile. A picked version (prefer) accepts only that release.
 func (m *Manager) preparedResolution(ctx context.Context, s *session, profile core.QualityProfile, original, prefer string) (*core.Resolution, *probeCache, bool) {
+	if s.caps.BroadcastReadyRelease != "" {
+		return nil, nil, false
+	}
 	var res *core.Resolution
 	var cached *probeCache
 	fromResume := false
@@ -160,6 +163,9 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 				}
 				return nil, err
 			}
+		}
+		if s.caps.BroadcastReadyRelease != "" && cached == nil {
+			cached = m.persistedProbe(ctx, s.ident.userID, s.ident.key, res.Release.ID, res.NZB)
 		}
 		if s.exact && res.Release.ID != s.prefer {
 			return nil, fmt.Errorf("%w: %w", core.ErrNotAvailable, core.ErrSourceChanged)
@@ -335,6 +341,29 @@ func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string
 		}
 	}
 	u := s.user
+	if s.caps.BroadcastReadyRelease != "" {
+		ready, ok := m.deps.Resolver.(interface {
+			ResolveReadyChannel(context.Context, core.ResolveRequest) (*core.Resolution, error)
+		})
+		if !ok {
+			return nil, core.ErrNotAvailable
+		}
+		req := core.ResolveRequest{Title: s.title, Client: s.caps, User: &u, Exclude: tried, Prefer: s.caps.BroadcastReadyRelease}
+		// A freshly verified source may already have its exact payload on
+		// disk. Revalidate evidence, then avoid another indexer/provider grab.
+		if evidence, ok := m.deps.Resolver.(interface {
+			ReadyChannelRelease(context.Context, core.ResolveRequest) (core.Release, bool)
+		}); ok && m.resume != nil {
+			if r, live := evidence.ReadyChannelRelease(ctx, req); live && r.ID == req.Prefer {
+				if rec, err := m.resume.get(ctx, u.ID, s.ident.key); err == nil && rec != nil && rec.releaseID == r.ID {
+					if payload, err := m.resume.readResumeNZB(ctx, rec); err == nil {
+						return &core.Resolution{Title: s.ident.key, Release: r, NZB: payload, ResolvedAt: m.now()}, nil
+					}
+				}
+			}
+		}
+		return ready.ResolveReadyChannel(ctx, req)
+	}
 	res, err := m.deps.Resolver.Resolve(ctx, core.ResolveRequest{
 		Title:              s.title,
 		Client:             s.caps,
@@ -410,6 +439,9 @@ func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Reso
 		// its actual byte size, never the aggregate pack or an unknown size.
 		file := res.Release
 		file.Size, file.Info.FullSeason = src.Size(), false
+		if video := g.infoSnapshot().Video(); video != nil && video.Height > file.Info.Height {
+			file.Info.Height = video.Height
+		}
 		if !m.channelSourceAllowed(s, file) {
 			m.dropGeneration(g)
 			return nil, fmt.Errorf("%w: selected file exceeds channel delivery budget", core.ErrNotAvailable)
@@ -1536,8 +1568,18 @@ func (m *Manager) resumeResolution(ctx context.Context, userID int64, key core.R
 		m.log.Warn("resume lookup failed", "err", err)
 		return nil
 	}
-	if rec == nil || m.releaseBlocked(ctx, rec.releaseID) || rec.profile != profileKey(profile) || !rememberedOriginalAudioCurrent(profile, rec.originalLanguage, originalLanguage, rec.release) || !rememberedCodecCurrent(rec.release, caps) || !m.resumeSourceAllowed(rec.release) || !sourceFitsBitrate(rec.size, rec.duration, 0, caps.MaxBitrateKbps) {
+	if rec == nil || m.releaseBlocked(ctx, rec.releaseID) || rec.profile != profileKey(profile) || !rememberedOriginalAudioCurrent(profile, rec.originalLanguage, originalLanguage, rec.release) || !rememberedCodecCurrent(rec.release, caps) || !m.resumeSourceAllowed(rec.release) || !sourceFitsBitrate(rec.size, rec.duration, 0, caps.MaxBitrateKbps) || !sourceFitsBitrate(rec.size, rec.duration, 0, caps.BroadcastBitrateKbps) {
 		return nil
+	}
+	if caps.BroadcastBitrateKbps > 0 && (rec.size <= 0 || rec.duration <= 0) {
+		return nil
+	}
+	if caps.BroadcastBitrateKbps > 0 {
+		file := rec.release
+		file.Size = rec.size
+		if !releasepolicy.ChannelSourceAllowed(file, rec.duration, caps.BroadcastBitrateKbps) {
+			return nil
+		}
 	}
 	nzb, err := m.resume.readResumeNZB(ctx, rec)
 	if err != nil {
