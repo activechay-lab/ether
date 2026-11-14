@@ -343,6 +343,11 @@ func (p *scheduleBroadcastPlanner) programme(programme Programme, plannedAt ...t
 				offset = programme.Offset(at)
 			}
 			sourceWall := time.Now()
+			// A cold title seeks to its future join time. Anchor those decoded
+			// pictures there too, rather than treating them as already due.
+			if ahead := now.Sub(p.s.o.Now()); ahead > 0 {
+				sourceWall = sourceWall.Add(ahead)
+			}
 			// Alternate content occupies this same future airing. Anchoring it to
 			// preparation time would discard the parked decoder's opening frames
 			// as stale when a long pod or plugin interval finally ends.

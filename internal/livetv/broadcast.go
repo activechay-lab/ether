@@ -138,16 +138,10 @@ func (i *broadcastInput) run(plan broadcastPlan) {
 		if !i.wallStart.IsZero() {
 			now := time.Now()
 			frameDur := time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum)
-			if !ready && now.After(i.wallStart) {
-				i.wallStart = now
-			}
 			at := i.wallStart.Add(time.Duration(i.parkedDuration.Load())).Add(time.Duration(frameNo) * frameDur)
 			frameNo++
 			if at.Add(frameDur).Before(now) {
-				if len(i.frames) > 0 {
-					continue
-				}
-				i.wallStart = now.Add(-time.Duration(i.parkedDuration.Load())).Add(-time.Duration(frameNo) * frameDur)
+				continue
 			}
 		}
 		if !ready {
@@ -922,17 +916,27 @@ func (b *broadcast) step(now time.Time) bool {
 			b.open(plan, now)
 		}
 	}
-	// A first programme that is still preparing must not spend the startup
-	// lead on extra title frames. Keep accepting prepared inputs at this tick;
-	// publish the first programme frame at the original title boundary.
+	// Keep publishing the looping title until a programme picture is ready at
+	// a segment cut. Waiting here used to stop the already-playing playlist.
 	titleOpening := b.intro.element == "tonight" || b.intro.element == "upnext"
 	if titleOpening && !b.airedProgramme && current.programme && !now.Before(b.introUntil) {
-		if b.current == nil || len(b.current.frames) == 0 {
-			b.waitingProgramme = true
-			if time.Since(b.created) >= broadcastColdProgrammeWait {
-				b.cancel()
+		boundary := (b.tick*int64(b.format.FPSDen)*int64(time.Second))%int64(b.segment*time.Duration(b.format.FPSNum)) == 0
+		if !boundary || b.current == nil || len(b.current.frames) == 0 {
+			// Pace title extensions at the live clock; only speculative ticks
+			// wait, never ticks needed to finish a published segment.
+			if now.After(time.Now()) {
+				return false
 			}
-			return false
+			b.introUntil = now.Add(time.Second * time.Duration(b.format.FPSDen) / time.Duration(b.format.FPSNum))
+			introActive = true
+			// Advance the prepared programme behind the extended title so its
+			// first aired picture retains the channel's wall-clock position.
+			if b.current != nil {
+				select {
+				case <-b.current.frames:
+				default:
+				}
+			}
 		}
 	}
 	if !now.Before(b.introUntil) && b.introInput != nil {

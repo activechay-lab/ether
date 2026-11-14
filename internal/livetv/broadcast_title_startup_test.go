@@ -50,7 +50,7 @@ func (d *coldTitleDecoder) Next(ctx context.Context) (transcode.RawFrame, error)
 }
 
 // Reproduce lab.33: plate at 1.08s, master 1.2s later, programme at 6.4s,
-// and speculative startup lead of 14s. The encoded title must still end at 4s.
+// and speculative startup lead of 14s. The encoded title must keep flowing until the next ready segment cut.
 // The startup burst must not spend the title interval before the master exists.
 func TestColdTuneTitleStartupSequence(t *testing.T) {
 	t.Run("real planner binds current programme title", func(t *testing.T) {
@@ -170,15 +170,15 @@ func TestColdTuneTitleStartupSequence(t *testing.T) {
 				}
 			case 30:
 			default:
-				if i < 120 || i >= 129 || frame.Video[0] < 90 || frame.Video[0] > 200 {
+				if i < 120 || frame.Video[0] < 90 || frame.Video[0] > 200 {
 					t.Fatalf("tick %d aired unexpected picture: %d", i, frame.Video[0])
 				}
 			}
 		}
 
 		t.Logf("animated at tick %d; programme at tick %d", animatedAt, programmeAt)
-		if programmeAt < 120 || programmeAt > 130 {
-			t.Fatalf("programme cut at %d, want four-second boundary plus crossfade (120..130)", programmeAt)
+		if programmeAt < 240 || programmeAt > 250 {
+			t.Fatalf("programme cut at %d, want next ready segment boundary plus crossfade (240..250)", programmeAt)
 		}
 		if animatedAt != 120 {
 			t.Fatalf("animation cut at %d, want segment boundary120", animatedAt)
