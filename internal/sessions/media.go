@@ -446,6 +446,7 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 				return
 			}
 		}
+		b.logMasterFailure(r, parts[0], "session unavailable")
 		http.NotFound(w, r)
 		return
 	}
@@ -479,12 +480,14 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 		return v
 	})
 	if !ok || viewer.ID != s.public.ViewerID {
+		b.logMasterFailure(r, s.public.ID, "media grant denied")
 		http.NotFound(w, r)
 		return
 	}
 	// Grants do not freeze library, rating, release, or channel permissions.
 	// Check the current policy before handing any bytes to a backend.
 	if !b.currentMediaPolicy(r.Context(), viewer, s) {
+		b.logMasterFailure(r, s.public.ID, "current media policy denied")
 		http.NotFound(w, r)
 		return
 	}
@@ -535,6 +538,7 @@ func (b *Broker) serveMediaAt(protocol frontend.Protocol, access *frontend.Sessi
 	}
 	hs, ok := b.transcodeSession(s.public.ID)
 	if !ok || hs == nil {
+		b.logMasterFailure(r, s.public.ID, "encoder session unavailable")
 		http.NotFound(w, r)
 		return
 	}
@@ -626,6 +630,7 @@ func validRung(id string) bool {
 func (b *Broker) serveMaster(w http.ResponseWriter, r *http.Request, s *brokerSession, hs core.HLSSession) {
 	ps, ok := b.deps.Playback.Session(s.playID)
 	if !ok || ps == nil {
+		b.logMasterFailure(r, s.public.ID, "playback source unavailable")
 		http.NotFound(w, r)
 		return
 	}
@@ -654,6 +659,7 @@ func (b *Broker) serveMaster(w http.ResponseWriter, r *http.Request, s *brokerSe
 	} else {
 		entry, ok := b.bindings.Get(s.public.ID)
 		if !ok {
+			b.logMasterFailure(r, s.public.ID, "encoder binding unavailable")
 			http.NotFound(w, r)
 			return
 		}
@@ -698,4 +704,12 @@ func embyMasterMetadata(master string, version int, independent bool) string {
 		metadata += "#EXT-X-INDEPENDENT-SEGMENTS\n"
 	}
 	return metadata + strings.TrimPrefix(master, "#EXTM3U\n")
+}
+
+// Log only failed master requests, without the URL or its bearer grant. A
+// frontend's status-only access log cannot distinguish these failure paths.
+func (b *Broker) logMasterFailure(r *http.Request, sessionID, reason string) {
+	if b.deps.Logger != nil && strings.HasSuffix(r.URL.Path, "/master.m3u8") {
+		b.deps.Logger.Warn("session master unavailable", "session", sessionID, "reason", reason)
+	}
 }

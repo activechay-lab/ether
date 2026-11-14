@@ -1,6 +1,7 @@
 package mediabrowser
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -56,45 +57,56 @@ func (i *instance) queryFilters(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Unavailable", 503)
 		return
 	}
-	// Facets are derived from the viewer's visible library, never the global index.
-	genres, err := i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), "genre")
-	if err != nil {
-		http.Error(w, "Unavailable", 503)
-		return
-	}
-	if strings.EqualFold(r.URL.Path, "/Items/Filters2") {
-		names := []any{}
-		for _, g := range genres {
-			names = append(names, map[string]any{"Name": g.Title, "Id": g.ID})
+	// A cold aggregate or unavailable index must not hold a library page.
+	// All five indexed lookups share one small request budget.
+	ctx, cancel := context.WithTimeout(r.Context(), 250*time.Millisecond)
+	defer cancel()
+	// Read each facet independently: an absent optional facet must not hide
+	// the filters that are available. Production implements the indexed reader;
+	// embedded hosts can still supply their bounded Facets implementation.
+	read := func(kind string) []frontend.FacetValue {
+		var values []frontend.FacetValue
+		var err error
+		if reader, ok := i.host.Experience.(frontend.FilterFacetReader); ok {
+			values, err = reader.FilterFacets(ctx, v, device(r), facetView(r), kind)
+		} else {
+			values, err = i.host.Experience.Facets(ctx, v, device(r), facetView(r), kind)
 		}
-		jsonReply(w, map[string]any{"Genres": names, "Tags": []string{}, "AudioLanguages": []any{}, "SubtitleLanguages": []any{}})
-	} else {
-		names := []string{}
-		for _, g := range genres {
-			names = append(names, g.Title)
-		}
-		years, err := i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), "year")
 		if err != nil {
-			http.Error(w, "Unavailable", 503)
-			return
+			i.logFacetFailure(kind, err)
+			return nil
 		}
-		ratings, err := i.host.Experience.Facets(r.Context(), v, device(r), facetView(r), "contentRating")
-		if err != nil {
-			http.Error(w, "Unavailable", 503)
-			return
-		}
-		yearValues := []int{}
-		for _, year := range years {
-			if n, e := strconv.Atoi(year.Title); e == nil {
-				yearValues = append(yearValues, n)
-			}
-		}
-		ratingValues := []string{}
-		for _, rating := range ratings {
-			ratingValues = append(ratingValues, contentrating.Prefixed(rating.Title))
-		}
-		jsonReply(w, map[string]any{"Genres": names, "Tags": []string{}, "OfficialRatings": ratingValues, "Years": yearValues})
+		return values
 	}
+	genres, studios := read("genre"), read("studio")
+	genreNames, studioNames, tags, ratings := []string{}, []string{}, []string{}, []string{}
+	genreItems, studioItems := []any{}, []any{}
+	for _, value := range genres {
+		genreNames = append(genreNames, value.Title)
+		genreItems = append(genreItems, map[string]any{"Name": value.Title, "Id": value.ID})
+	}
+	for _, value := range studios {
+		studioNames = append(studioNames, value.Title)
+		studioItems = append(studioItems, map[string]any{"Name": value.Title, "Id": value.ID})
+	}
+	for _, value := range read("tag") {
+		tags = append(tags, value.Title)
+	}
+	for _, value := range read("contentRating") {
+		ratings = append(ratings, contentrating.Prefixed(value.Title))
+	}
+	years := []int{}
+	for _, value := range read("year") {
+		if n, err := strconv.Atoi(value.Title); err == nil {
+			years = append(years, n)
+		}
+	}
+	result := map[string]any{"Genres": genreNames, "Studios": studioNames, "Tags": tags, "OfficialRatings": ratings, "Years": years}
+	if strings.HasSuffix(strings.ToLower(r.URL.Path), "/items/filters2") {
+		result["Genres"], result["Studios"] = genreItems, studioItems
+		result["AudioLanguages"], result["SubtitleLanguages"] = []any{}, []any{}
+	}
+	jsonReply(w, result)
 }
 
 func (i *instance) upcomingEpisodes(w http.ResponseWriter, r *http.Request) {

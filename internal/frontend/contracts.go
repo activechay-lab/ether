@@ -121,6 +121,8 @@ type RowPaint struct {
 }
 
 type Row struct {
+	// Situation is the server-owned ranking context retained for deferred receipts.
+	Situation    core.HomeSituation
 	ID, Title    string
 	Purpose      RowPurpose
 	Kind         string // Stable semantic producer kind, independent of protocol.
@@ -966,4 +968,15 @@ type PlaybackSourceKeyer interface {
 // SoftSubtitleServer serves soft ASS subtitles directly from an active HLS remux session.
 type SoftSubtitleServer interface {
 	ServeSoftSubtitle(http.ResponseWriter, *http.Request, int) bool
+}
+
+// RowReceiptIssuer issues row-only receipts for server-owned, delivered snapshots.
+// It rechecks current policy without composing Home again.
+type RowReceiptIssuer interface {
+	IssueRowReceipts(context.Context, RowRequest, []Row) ([]Row, error)
+}
+
+// FilterFacetReader supplies bounded indexed filter values without a title walk.
+type FilterFacetReader interface {
+	FilterFacets(context.Context, *Viewer, Device, string, string) ([]FacetValue, error)
 }
