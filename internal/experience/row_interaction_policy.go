@@ -82,6 +82,12 @@ func (p RowInteractionPolicy) Allowed(ctx context.Context, u *core.User, subject
 }
 
 func (p RowInteractionPolicy) Record(ctx context.Context, u *core.User, subject ReceiptSubject, kind frontend.RowInteractionKind) error {
+	// The playback watch event already supplies the play reward. A row play
+	// receipt acknowledges its validated attribution without counting another
+	// impression (which would inflate the number of times this shelf was seen).
+	if kind == frontend.RowPlay && subject.Kind == "row" && subject.Impression != nil {
+		return nil
+	}
 	if kind == frontend.RowImpression && subject.Impression != nil {
 		p.Impression(u, *subject.Impression)
 		return nil

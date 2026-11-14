@@ -101,7 +101,7 @@ func (i *instance) searchPersons(w http.ResponseWriter, r *http.Request, v *fron
 // logFacetFailure records a genre/studio/person list that could not be
 // built; the app is answered an empty list instead of an error.
 func (i *instance) logFacetFailure(kind string, err error) {
-	if i.host.Log != nil && !errors.Is(err, context.Canceled) {
+	if i.host.Log != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, frontend.ErrNotFound) {
 		i.host.Log.Warn("mediabrowser facet list unavailable", "frontend", i.protocol, "kind", kind, "err", err)
 	}
 }

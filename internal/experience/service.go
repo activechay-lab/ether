@@ -2820,3 +2820,12 @@ func (s *Service) ResolveFacet(ctx context.Context, viewer *core.Viewer, device 
 	}
 	return *found, nil
 }
+
+func (s *Service) IssueRowReceipts(ctx context.Context, req frontend.RowRequest, rows []frontend.Row) ([]frontend.Row, error) {
+	v, err := s.viewer(ctx, req.Viewer)
+	if err != nil {
+		return nil, err
+	}
+	req.Viewer = v
+	return s.d.Rows.IssueRowReceipts(ctx, req, s.d.Protocol, rows)
+}

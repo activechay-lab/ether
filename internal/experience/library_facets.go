@@ -13,7 +13,7 @@ import (
 // sqlFacets maps the facets the catalogue counts in SQL to its facet name
 // (studios and countries unlimited: the walk listed every value). People are
 // not counted in SQL: a credit facet would read every credit.
-var sqlFacets = map[string]string{"genre": "genre", "studio": "studioAll", "country": "countryAll", "year": "year", "decade": "decade", "contentRating": "contentRating"}
+var sqlFacets = map[string]string{"genre": "genre", "filterStudio": "studio", "tag": "tag", "studio": "studioAll", "country": "countryAll", "year": "year", "decade": "decade", "contentRating": "contentRating"}
 
 // indexedFacets counts a library's facet values in SQL over the titles the
 // viewer may see (the same exclusions an indexed page folds in), instead of
@@ -217,4 +217,49 @@ func (s *Service) resolveStudio(ctx context.Context, viewer *core.Viewer, viewID
 		return core.FacetValue{}, core.ErrNotFound
 	}
 	return core.FacetValue{ID: id, Key: studio, Title: studio}, nil
+}
+
+// FilterFacets never falls back to walking LibraryItems. Studios use the
+// catalogue's top-value index rather than materializing the studio vocabulary.
+func (s *Service) FilterFacets(ctx context.Context, viewer *core.Viewer, device core.Device, viewID, name string) ([]core.FacetValue, error) {
+	ctx = core.WithCatalogViewer(ctx, viewer)
+	queryName := name
+	if name == "studio" {
+		queryName = "filterStudio"
+	}
+	// Filter and plugin libraries keep their own visibility and membership scope.
+	if s.d.PluginLibraries != nil && viewID != "" {
+		if id, err := strconv.Atoi(viewID); err == nil {
+			if lib, err := s.d.PluginLibraries.Library(ctx, core.LibraryID(id)); err == nil {
+				if lib.Source == core.LibraryPlugin {
+					values, err := s.pluginLibraryFacets(ctx, viewer, lib, name)
+					if len(values) > 256 {
+						values = values[:256]
+					}
+					return values, err
+				}
+				if lib.Source == core.LibraryFilter {
+					values, _, err := s.filterLibraryFacets(ctx, viewer, lib, queryName)
+					if len(values) > 256 {
+						values = values[:256]
+					}
+					for n := range values {
+						values[n].ID = facetID(name, values[n].Key)
+					}
+					return values, err
+				}
+			}
+		}
+	}
+	values, ok, err := s.indexedFacets(ctx, viewer, viewID, queryName)
+	if err != nil || !ok {
+		return []core.FacetValue{}, err
+	}
+	if len(values) > 256 {
+		values = values[:256]
+	}
+	for n := range values {
+		values[n].ID = facetID(name, values[n].Key)
+	}
+	return values, nil
 }

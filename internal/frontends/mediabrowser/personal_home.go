@@ -150,7 +150,7 @@ type personalCredit struct {
 	viewer frontend.Viewer
 	device frontend.Device
 	rowID  string
-	items  []string
+	row    frontend.Row
 }
 
 type personalIdentityCache struct {
@@ -785,11 +785,7 @@ func (i *instance) notePersonalDelivery(r *http.Request, v *frontend.Viewer, she
 	}
 	dev := device(r)
 	if shelf.row.Handle == "" {
-		items := make([]string, 0, len(titles))
-		for _, title := range titles {
-			items = append(items, ids.RatingKeyGUID(title.Key))
-		}
-		i.queuePersonalCredit(v, dev, shelf.row.ID, items)
+		i.queuePersonalCredit(v, dev, shelf.row, titles)
 		return
 	}
 	i.reportPersonalImpression(r.Context(), v, dev, shelf.row.Handle)
@@ -809,12 +805,30 @@ func (i *instance) reportPersonalImpression(ctx context.Context, v *frontend.Vie
 	}
 }
 
-func (i *instance) queuePersonalCredit(v *frontend.Viewer, dev frontend.Device, rowID string, items []string) {
-	if v == nil || dev.ID == "" || rowID == "" || len(items) == 0 || i.host.Experience == nil {
+func (i *instance) queuePersonalCredit(v *frontend.Viewer, dev frontend.Device, row frontend.Row, titles []frontend.Title) {
+	rowID := row.ID
+	if v == nil || dev.ID == "" || rowID == "" || len(titles) == 0 || i.host.Experience == nil {
 		return
 	}
-	credit := personalCredit{viewer: *v, device: dev, rowID: rowID, items: items}
+	// Keep only the title entries actually sent in this response.
+	row.Entries = make([]frontend.RowEntry, 0, min(len(titles), personalRowFetch))
+	for n := range titles[:min(len(titles), personalRowFetch)] {
+		title := titles[n]
+		row.Entries = append(row.Entries, frontend.RowEntry{Kind: frontend.RowEntryTitle, Title: &title})
+	}
+	credit := personalCredit{viewer: *v, device: dev, rowID: rowID, row: row}
 	i.personal.mu.Lock()
+	// Repeated Latest requests for the same shelf share one pending receipt.
+	for n, pending := range i.personal.pending {
+		if pending.viewer.ID == v.ID && pending.device.ID == dev.ID && pending.rowID == rowID {
+			i.personal.pending[n] = credit
+			i.personal.mu.Unlock()
+			return
+		}
+	}
+	if len(i.personal.pending) >= 128 {
+		i.personal.pending = i.personal.pending[1:]
+	}
 	i.personal.pending = append(i.personal.pending, credit)
 	if i.personal.issueTimer != nil {
 		i.personal.issueTimer.Stop()
@@ -836,10 +850,26 @@ func (i *instance) flushPersonalCredits() {
 		key := personalCacheKey(string(i.protocol), &credit.viewer, credit.device, i.personalConfig())
 		groups[key] = append(groups[key], credit)
 	}
-	for key, credits := range groups {
+	for _, credits := range groups {
 		viewer := credits[0].viewer
 		ctx, cancel := context.WithTimeout(i.life, 15*time.Second)
-		rows, err := i.host.Experience.Rows(ctx, frontend.RowRequest{Viewer: &viewer, Device: credits[0].device, Placement: frontend.PlacementHome, Limit: personalRowFetch})
+		req := frontend.RowRequest{Viewer: &viewer, Device: credits[0].device, Placement: frontend.PlacementHome, Limit: personalRowFetch}
+		var rows []frontend.Row
+		var err error
+		if issuer, ok := i.host.Experience.(frontend.RowReceiptIssuer); ok {
+			// Coalesce the burst by row before issuing a small batch. No Home
+			// rebuild, no receipts for undelivered entries.
+			seen := map[string]bool{}
+			for _, credit := range credits {
+				if !seen[credit.rowID] && len(rows) < personalRowMax {
+					seen[credit.rowID] = true
+					rows = append(rows, credit.row)
+				}
+			}
+			rows, err = issuer.IssueRowReceipts(ctx, req, rows)
+		} else {
+			rows, err = i.host.Experience.Rows(ctx, req)
+		}
 		cancel()
 		if err != nil {
 			if i.host.Log != nil {
@@ -847,46 +877,18 @@ func (i *instance) flushPersonalCredits() {
 			}
 			continue
 		}
-		handles := map[string]string{}
 		for _, row := range rows {
-			if row.ID != "" && row.Handle != "" {
-				handles[row.ID] = row.Handle
-			}
-		}
-		i.stampPersonalHandles(key, handles)
-		reported := map[string]bool{}
-		for _, credit := range credits {
-			handle := handles[credit.rowID]
-			if handle == "" {
+			if row.Handle == "" {
 				continue
 			}
-			if !reported[credit.rowID] {
-				reported[credit.rowID] = true
-				i.reportPersonalImpression(i.life, &credit.viewer, credit.device, handle)
-			}
-			for _, item := range credit.items {
-				i.credits.remember(credit.viewer.ID, credit.device.ID, item, handle)
+			i.reportPersonalImpression(i.life, &viewer, credits[0].device, row.Handle)
+			for _, entry := range row.Entries {
+				if entry.Kind == frontend.RowEntryTitle && entry.Title != nil {
+					i.credits.remember(viewer.ID, credits[0].device.ID, ids.RatingKeyGUID(entry.Title.Key), row.Handle)
+				}
 			}
 		}
 	}
-}
-
-func (i *instance) stampPersonalHandles(key string, handles map[string]string) {
-	if len(handles) == 0 {
-		return
-	}
-	i.personal.mu.Lock()
-	defer i.personal.mu.Unlock()
-	slot, ok := i.personal.loaded[key]
-	if !ok {
-		return
-	}
-	for n := range slot.shelves {
-		if handle := handles[slot.shelves[n].row.ID]; handle != "" {
-			slot.shelves[n].row.Handle = handle
-		}
-	}
-	i.personal.loaded[key] = slot
 }
 
 func (i *instance) writePersonalItems(w http.ResponseWriter, r *http.Request, v *frontend.Viewer, number int64) {
