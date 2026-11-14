@@ -3,6 +3,7 @@ package sessions
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -30,7 +31,7 @@ func (b *Broker) SubtitleURL(ctx context.Context, a frontend.SessionAccess, id s
 		return "", core.ErrUnauthorized
 	}
 	format = strings.ToLower(format)
-	if index < 0 || (format != "vtt" && format != "srt") {
+	if index < 0 || !subtitleFormat(format) {
 		return "", core.ErrNotAvailable
 	}
 	ps, ok := b.deps.Playback.Session(s.playID)
@@ -48,6 +49,15 @@ func (b *Broker) SubtitleURL(ctx context.Context, a frontend.SessionAccess, id s
 		return "", core.ErrNotAvailable
 	}
 	return fmt.Sprintf("/sessions/media/%s/%s/subtitles/%d.%s", s.public.ID, s.grant, index, format), nil
+}
+
+// subtitleFormat includes Jellyfin web's JSON renderer and ASS renderer.
+func subtitleFormat(format string) bool {
+	switch format {
+	case "vtt", "srt", "js", "ass":
+		return true
+	}
+	return false
 }
 
 // subtitleContext names the session's source for the extraction cache.
@@ -68,7 +78,7 @@ func subtitleStream(info core.MediaInfo, index int) (core.StreamInfo, bool) {
 }
 func (b *Broker) serveSubtitle(w http.ResponseWriter, r *http.Request, s *brokerSession, name string) {
 	number, format, ok := strings.Cut(name, ".")
-	if !ok || (format != "vtt" && format != "srt") {
+	if !ok || !subtitleFormat(format) {
 		http.NotFound(w, r)
 		return
 	}
@@ -87,6 +97,24 @@ func (b *Broker) serveSubtitle(w http.ResponseWriter, r *http.Request, s *broker
 		http.NotFound(w, r)
 		return
 	}
+	// Authored ASS must retain its styles and positioning, using the same
+	// scoped source reader as the subtitle artifact API.
+	if format == "ass" && !stream.External && subtitles.IsASSCodec(stream.Codec) {
+		raw, err := b.readEmbeddedAuthoredASS(r.Context(), s, ps, stream)
+		if err != nil {
+			http.Error(w, "subtitle unavailable", http.StatusBadGateway)
+			return
+		}
+		if ms, ok := syncMS(r); ok {
+			raw = subtitles.ShiftASS(raw, time.Duration(ms)*time.Millisecond)
+		}
+		writeSubtitle(w, r, raw, "text/x-ssa; charset=utf-8")
+		return
+	}
+	sourceFormat := format
+	if format == "js" || format == "ass" {
+		sourceFormat = "vtt"
+	}
 	const maxSubtitle = 32 << 20
 	var raw []byte
 	if stream.External {
@@ -94,14 +122,14 @@ func (b *Broker) serveSubtitle(w http.ResponseWriter, r *http.Request, s *broker
 			http.NotFound(w, r)
 			return
 		}
-		reader, actual, err := b.openSubtitle(s, stream.ExternalURL, format)
+		reader, actual, err := b.openSubtitle(s, stream.ExternalURL, sourceFormat)
 		if err != nil {
 			http.NotFound(w, r)
 			return
 		}
 		defer reader.Close()
 		raw, err = io.ReadAll(io.LimitReader(reader, maxSubtitle+1))
-		if err != nil || len(raw) > maxSubtitle || actual != format {
+		if err != nil || len(raw) > maxSubtitle || actual != sourceFormat {
 			http.Error(w, "subtitle unavailable", http.StatusBadGateway)
 			return
 		}
@@ -126,12 +154,55 @@ func (b *Broker) serveSubtitle(w http.ResponseWriter, r *http.Request, s *broker
 			raw = []byte(subtitles.RenderSRT(cues))
 		}
 	}
-	raw = b.presentSubtitle(r, raw, format)
-	if format == "vtt" {
-		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
-	} else {
-		w.Header().Set("Content-Type", "application/x-subrip; charset=utf-8")
+	raw = b.presentSubtitle(r, raw, sourceFormat)
+	contentType := "text/vtt; charset=utf-8"
+	switch format {
+	case "srt":
+		contentType = "application/x-subrip; charset=utf-8"
+	case "js", "ass":
+		cues, err := subtitles.ParseCues(string(raw))
+		if err != nil {
+			http.Error(w, "subtitle unavailable", http.StatusBadGateway)
+			return
+		}
+		if format == "js" {
+			raw, err = jellyfinSubtitleJSON(cues)
+			contentType = "application/json; charset=utf-8"
+		} else {
+			raw = []byte(subtitles.RenderASS(cues))
+			contentType = "text/x-ssa; charset=utf-8"
+		}
+		if err != nil {
+			http.Error(w, "subtitle unavailable", http.StatusBadGateway)
+			return
+		}
 	}
+	writeSubtitle(w, r, raw, contentType)
+}
+
+// Jellyfin web fetchSubtitles parses JSON, then renders TrackEvents on the
+// title clock (10,000,000 ticks per second). Its text renderer expands \N.
+func jellyfinSubtitleJSON(cues []subtitles.Cue) ([]byte, error) {
+	type event struct {
+		Id                 string
+		Text               string
+		StartPositionTicks int64
+		EndPositionTicks   int64
+	}
+	events := make([]event, 0, len(cues))
+	for n, cue := range cues {
+		events = append(events, event{
+			Id:                 strconv.Itoa(n + 1),
+			Text:               strings.ReplaceAll(strings.ReplaceAll(cue.Text, "\r", ""), "\n", `\N`),
+			StartPositionTicks: cue.Start.Nanoseconds() / 100,
+			EndPositionTicks:   cue.End.Nanoseconds() / 100,
+		})
+	}
+	return json.Marshal(struct{ TrackEvents []event }{TrackEvents: events})
+}
+
+func writeSubtitle(w http.ResponseWriter, r *http.Request, raw []byte, contentType string) {
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("Content-Length", strconv.Itoa(len(raw)))
 	if r.Method != http.MethodHead {
 		_, _ = w.Write(raw)

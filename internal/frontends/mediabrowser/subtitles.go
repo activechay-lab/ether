@@ -32,7 +32,7 @@ func (i *instance) subtitle(w http.ResponseWriter, r *http.Request) {
 	}
 	name := strings.ToLower(r.PathValue("name"))
 	format := strings.TrimPrefix(name, "stream.")
-	if name == format || (format != "vtt" && format != "srt") {
+	if name == format || (format != "vtt" && format != "srt" && format != "js" && format != "ass") {
 		http.NotFound(w, r)
 		return
 	}

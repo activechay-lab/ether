@@ -124,8 +124,13 @@ func mount(ctx context.Context, host frontend.Host, machineID string, protocol f
 		return nil, err
 	}
 	for _, method := range []string{"GET", "HEAD"} {
-		if err := r.Handle(method, "/Videos/{id}/{source}/Subtitles/{index}/{name}", http.HandlerFunc(inst.subtitle)); err != nil {
-			return nil, err
+		for _, path := range []string{
+			"/Videos/{id}/{source}/Subtitles/{index}/{name}",
+			"/Videos/{id}/{source}/Subtitles/{index}/{start}/{name}",
+		} {
+			if err := r.Handle(method, path, http.HandlerFunc(inst.subtitle)); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if err := inst.playbackRoutes(); err != nil {
