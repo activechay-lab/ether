@@ -76,6 +76,8 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 			}
 		}
 	}
+	pool = clearIdentityVariants(pool)
+	strict = clearIdentityVariants(strict)
 	var vs []core.ReleaseVariant
 	rcfg := s.resolverCfg()
 	wanted := wantedAudio(profile, req.User, s.catalogLanguage())
@@ -84,7 +86,24 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 	} else {
 		vs = pickVariants(req.Title, req.Client, profile, strict[0].rel, pool, strict, s.sameQualityAlternatives(), max, allowTaller, wanted)
 	}
-	labelPlayedAuto(req.Title, vs, req.PlayedRelease, results, s.LookupRelease, wanted)
+	// A historical play must not put a now-rejected namesake back into Auto.
+	played := req.PlayedRelease
+	if played != "" {
+		r, found := s.LookupRelease(played)
+		for _, result := range results {
+			if result.ID == played {
+				r, found = result, true
+				break
+			}
+		}
+		if found {
+			identity := s.localEpisodeIdentity(ctx, req.Title, sreq, results)
+			if identity.reject(r, req.Title, sreq) != "" || (identity.ambiguous(r, sreq) && !strict[0].identityWeak) {
+				played = ""
+			}
+		}
+	}
+	labelPlayedAuto(req.Title, vs, played, results, s.LookupRelease, wanted)
 	return vs, nil
 }
 
