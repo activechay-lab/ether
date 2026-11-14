@@ -192,7 +192,7 @@ func TestProgrammeSourceRecovery(t *testing.T) {
 			}
 			d.Close()
 			release()
-			if retry := plan.failed(errors.New("decoder stalled")); retry.Sub(time.Now()) > time.Second {
+			if retry := plan.failed(errors.New("decoder stalled")); time.Until(retry) > time.Second {
 				t.Fatal("runtime failover delayed")
 			}
 			time.Sleep(time.Second)
