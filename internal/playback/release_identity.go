@@ -43,11 +43,11 @@ func payloadMatchesTitle(nzb []byte, title *core.Title) bool {
 	if len(baseInfo.Seasons) == 0 && len(fullInfo.Seasons) > 0 {
 		baseInfo.Seasons = fullInfo.Seasons
 	}
-	if len(baseInfo.Episodes) > 0 {
-		return releaseparse.EpisodeMatches(baseInfo, season, episode)
+	if len(baseInfo.Episodes) > 0 || len(baseInfo.AbsoluteEpisodes) > 0 {
+		return releaseparse.EpisodeMatchesNumbering(baseInfo, season, episode, playbackAbsoluteEpisode(title, season, episode))
 	}
-	if len(fullInfo.Episodes) > 0 {
-		return releaseparse.EpisodeMatches(fullInfo, season, episode)
+	if len(fullInfo.Episodes) > 0 || len(fullInfo.AbsoluteEpisodes) > 0 {
+		return releaseparse.EpisodeMatchesNumbering(fullInfo, season, episode, playbackAbsoluteEpisode(title, season, episode))
 	}
 	return true
 }
@@ -86,7 +86,7 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 	if len(info.Episodes) == 0 && !info.FullSeason {
 		info = releaseparse.Parse(rel.Name)
 	}
-	if episode > 0 && (len(info.Episodes) > 0 || info.FullSeason) {
+	if episode > 0 && (len(info.Episodes) > 0 || len(info.AbsoluteEpisodes) > 0 || info.FullSeason) {
 		if info.FullSeason {
 			if len(info.Seasons) > 0 {
 				found := false
@@ -97,7 +97,7 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 					return false
 				}
 			}
-		} else if !releaseparse.EpisodeMatches(info, season, episode) {
+		} else if !releaseparse.EpisodeMatchesNumbering(info, season, episode, playbackAbsoluteEpisode(title, season, episode)) {
 			return false
 		}
 	}
@@ -125,4 +125,16 @@ func (m *Manager) rememberedReleaseMatchesTitle(ctx context.Context, rel core.Re
 		return checker.RememberedReleaseAllowed(ctx, title, rel)
 	}
 	return releaseMatchesTitle(rel, title)
+}
+
+// Use the same known absolute number as the resolver, including season one's
+// natural count. Unknown later-season counts provide no fallback evidence.
+func playbackAbsoluteEpisode(title *core.Title, season, episode int) int {
+	if title.AbsoluteEpisode > 0 {
+		return title.AbsoluteEpisode
+	}
+	if season == 1 {
+		return episode
+	}
+	return 0
 }
