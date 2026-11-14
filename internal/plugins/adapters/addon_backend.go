@@ -221,6 +221,7 @@ func (b *addonBackend) convert(ctx context.Context, rec plugins.Record, req core
 			rel.Info.Languages = mergeLanguages(rel.Info.Languages, ex.langs)
 		}
 		rel.TitleIDs = req.IDs
+		rel.TitleIDsEchoed = true
 		byStream[ordinaryAt[src]] = rel
 	}
 	for i, rel := range direct {
@@ -344,7 +345,7 @@ func (s *StreamSources) directRelease(ctx context.Context, rec plugins.Record, r
 	if req.Type != core.TypeMovie {
 		cat = 5000
 	}
-	rel := core.Release{Name: name, Size: eb.Size, Category: cat, Info: releaseparse.Parse(name), TitleIDs: req.IDs, Protocol: "direct"}
+	rel := core.Release{Name: name, Size: eb.Size, Category: cat, Info: releaseparse.Parse(name), TitleIDs: req.IDs, TitleIDsEchoed: true, Protocol: "direct"}
 	if len(eb.Languages) > 0 {
 		rel.Info.Languages = mergeLanguages(rel.Info.Languages, eb.Languages)
 	}

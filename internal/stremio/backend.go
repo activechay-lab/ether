@@ -378,6 +378,7 @@ func convertWith(streams []stream, req core.SearchRequest, packs bool, opts conv
 		}
 		rel := core.Release{
 			Name:     name,
+			FileName: file,
 			Size:     size,
 			Seeders:  parseSeeders(text),
 			Info:     describe(name, file, torrent),

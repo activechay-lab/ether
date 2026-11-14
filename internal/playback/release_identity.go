@@ -66,7 +66,7 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 			expected.TMDB = title.Key.TMDB()
 		}
 	}
-	idMatch, idConflict := releaseparse.CompareTitleIDs(rel.TitleIDs, expected)
+	idMatch, idConflict := releaseparse.CompareTitleIDs(rel.ReportedTitleIDs(), expected)
 	if idConflict {
 		return false
 	}

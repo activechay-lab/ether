@@ -1955,7 +1955,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		return "indexer placeholder"
 	}
 	isEpisode := sreq.Type == core.TypeEpisode
-	idMatch, idConflict := releaseparse.CompareTitleIDs(rel.TitleIDs, sreq.IDs)
+	idMatch, idConflict := releaseparse.CompareTitleIDs(rel.ReportedTitleIDs(), sreq.IDs)
 	if idConflict {
 		return "indexer title identifier mismatch"
 	}
@@ -2347,13 +2347,14 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 	if rel.Target != nil {
 		target := *rel.Target
 		target.ShowYear, target.EpisodeTitle = sreq.Year, sreq.EpisodeTitle
+		target.FileName = rel.FileName
 		target.AbsoluteEpisode = releaseparse.AnimeSearchEpisode(sreq)
 		target.Cour, target.CourEpisode = sreq.Cour, sreq.CourEpisode
-		target.ExpectedIDs, target.ReportedIDs = sreq.IDs, rel.TitleIDs
+		target.ExpectedIDs, target.ReportedIDs = sreq.IDs, rel.ReportedTitleIDs()
 		rel.Target = &target
 		return rel // enrich cached identities without deriving their ID again
 	}
-	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Cour: sreq.Cour, CourEpisode: sreq.CourEpisode, Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.TitleIDs}
+	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Cour: sreq.Cour, CourEpisode: sreq.CourEpisode, Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.ReportedTitleIDs(), FileName: rel.FileName}
 	if rel.Info.FullSeason {
 		target.PackID = rel.ID
 		rel.ID = core.TargetReleaseID(rel.ID, target)
@@ -2371,6 +2372,9 @@ func retargetPack(rel core.Release, sreq core.SearchRequest) core.Release {
 	if rel.Target != nil && rel.Target.PackID != "" {
 		rel.ID = rel.Target.PackID
 	}
+	// A matched file belongs to the original episode query, not every
+	// episode covered by this pack. Retarget using the file selector.
+	rel.FileName = ""
 	rel.Target = nil
 	return withTarget(rel, sreq)
 }
@@ -2483,7 +2487,7 @@ func (s *Service) SourcesChanged(ctx context.Context) { s.forgetSourceResults(ct
 // episodeIdentityEvidence distinguishes corroboration from absence of a
 // contradiction. Query IDs and a generic/missing episode subtitle prove nothing.
 func episodeIdentityEvidence(rel core.Release, req core.SearchRequest) bool {
-	matched, conflict := releaseparse.CompareTitleIDs(rel.TitleIDs, req.IDs)
+	matched, conflict := releaseparse.CompareTitleIDs(rel.ReportedTitleIDs(), req.IDs)
 	if conflict {
 		return false
 	}
