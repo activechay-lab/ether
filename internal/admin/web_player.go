@@ -22,6 +22,20 @@ func (h *Handler) webPlayer(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// An owner signed in through Plex (or with an owner session) holds a
+	// credential identity grants do not resolve; requireAuth admits it via
+	// isOwner, so the web player must too, as the owner's own viewer.
+	if viewer == nil && h.isOwner(r, tokenFromRequest(r)) && h.deps.Users != nil {
+		if users, err := h.deps.Users.Users(r.Context()); err == nil {
+			for i := range users {
+				if users[i].IsOwner {
+					u := users[i]
+					viewer = &u
+					break
+				}
+			}
+		}
+	}
 	if viewer == nil {
 		writeError(w, 401, "unauthorized", "Sign in required")
 		return
