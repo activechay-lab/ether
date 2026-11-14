@@ -76,6 +76,8 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 			}
 		}
 	}
+	strict = acceptableVariantAudio(strict)
+	pool = acceptableVariantAudio(pool)
 	var vs []core.ReleaseVariant
 	rcfg := s.resolverCfg()
 	wanted := wantedAudio(profile, req.User, s.catalogLanguage())
@@ -86,6 +88,23 @@ func (s *Service) Variants(ctx context.Context, req core.ResolveRequest, max int
 	}
 	labelPlayedAuto(req.Title, vs, req.PlayedRelease, results, s.LookupRelease, wanted)
 	return vs, nil
+}
+
+// acceptableVariantAudio keeps unwanted single-language dubs as a last resort,
+// matching ranking's accepted-audio rules without spending any indexer budget.
+func acceptableVariantAudio(ranked []candidate) []candidate {
+	for _, c := range ranked {
+		if c.langOK {
+			out := make([]candidate, 0, len(ranked))
+			for _, candidate := range ranked {
+				if candidate.langOK {
+					out = append(out, candidate)
+				}
+			}
+			return out
+		}
+	}
+	return ranked
 }
 
 // labelPlayedAuto aligns Auto with the release this viewer actually played
