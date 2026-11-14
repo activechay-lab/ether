@@ -332,6 +332,11 @@ func (p *scheduleBroadcastPlanner) momentRequestAt(now time.Time) (core.ClipRequ
 }
 
 func (p *scheduleBroadcastPlanner) momentScreenAt(now time.Time) broadcastPlan {
+	// Without a graphics source there is no opening title to hold. Use the
+	// configured, prewarmed signal screen while the programme opens.
+	if p.s.o.Graphics == nil {
+		return broadcastPlan{}
+	}
 	c := p.channel
 	request, id := p.momentRequestAt(now)
 	return broadcastPlan{id: "moment-card-" + c.ID + "-" + id + "-" + request.Moment, element: request.Moment, open: func(ctx context.Context) (transcode.Decoder, func(), error) {

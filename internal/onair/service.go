@@ -1242,7 +1242,11 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	if j.convert != nil {
 		return j.convert(ctx)
 	}
+	var completed *entry
 	defer func() {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
 		elapsed := time.Since(started)
 		speedX := 0.0
 		if elapsed > 0 && j.Doc.Duration > 0 {
@@ -1260,6 +1264,11 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 			if speedX > 0 {
 				s.vis.LastSpeedX = speedX
 			}
+		}
+		if err == nil && completed != nil {
+			completed.Pin = s.pins[j.Hash]
+			s.cache[j.Hash] = *completed
+			s.evict()
 		}
 		masters := s.vis.MastersRendered
 		s.mu.Unlock()
@@ -1359,12 +1368,14 @@ func (s *Service) execute(parent context.Context, j renderJob) (err error) {
 	if e != nil {
 		return e
 	}
-	s.mu.Lock()
-	s.cache[j.Hash] = entry{core.ClipRef{Hash: j.Hash, Duration: time.Duration(j.Doc.Duration * float64(time.Second)), Path: out}, st.Size(), time.Now(), s.pins[j.Hash]}
-	s.evict()
-	s.mu.Unlock()
 	meta, _ := json.Marshal(j.Doc.Duration)
-	return os.WriteFile(filepath.Join(s.o.Dir, j.Hash+".json"), meta, 0640)
+	if err := os.WriteFile(filepath.Join(s.o.Dir, j.Hash+".json"), meta, 0640); err != nil {
+		return err
+	}
+	// Publish durability and its measured speed together, after the sidecar
+	// is complete, so Clip cannot expose a partially committed master.
+	completed = &entry{Ref: core.ClipRef{Hash: j.Hash, Duration: time.Duration(j.Doc.Duration * float64(time.Second)), Path: out}, Size: st.Size(), Used: time.Now()}
+	return nil
 }
 func (s *Service) loadCache() {
 	es, _ := os.ReadDir(s.o.Dir)

@@ -418,6 +418,10 @@ func (s *Service) OpenMoment(
 	// A cold scene airs immediately. The queued master becomes eligible at the
 	// next segment boundary; the reader never blocks on the render slot.
 	if cacheable && rawJob.AssetDigest == "" {
+		// Keep the master requested by this airing through budget eviction.
+		s.mu.Lock()
+		s.pins[cacheJob.Hash] = time.Now().Add(3 * time.Hour)
+		s.mu.Unlock()
 		s.enqueue(cacheJob)
 		stillJob := rawJob
 		if err := s.loadAssets(ctx, &stillJob); err != nil {
@@ -432,9 +436,13 @@ func (s *Service) OpenMoment(
 		// readers at a segment boundary; the plate remains available throughout.
 		promoteCtx, cancel := context.WithCancel(ctx)
 		ready := make(chan FrameReader)
+		promoteDone := make(chan struct{})
 		stream := &MomentStream{scenePoster: rawJob.Doc.Poster, sceneDuration: rawJob.Doc.Duration, mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
 			overlayDoc: overlayDoc, overlayBnd: overlayBind,
-			stopLive: func(bool) { cancel() },
+			stopLive: func(bool) {
+				cancel()
+				<-promoteDone
+			},
 			promote: func() FrameReader {
 				select {
 				case dec := <-ready:
@@ -445,6 +453,7 @@ func (s *Service) OpenMoment(
 			},
 		}
 		go func() {
+			defer close(promoteDone)
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
 			for {

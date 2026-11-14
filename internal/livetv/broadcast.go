@@ -140,7 +140,10 @@ func (i *broadcastInput) run(plan broadcastPlan) {
 			frameDur := time.Second * time.Duration(i.fpsDen) / time.Duration(i.fpsNum)
 			at := i.wallStart.Add(time.Duration(i.parkedDuration.Load())).Add(time.Duration(frameNo) * frameDur)
 			frameNo++
-			if at.Add(frameDur).Before(now) {
+			// Admit the first picture even when opening/decoding took longer
+			// than one frame. Otherwise a reader below real time discards every
+			// picture forever, so playout never starts its running stall timer.
+			if ready && at.Add(frameDur).Before(now) {
 				continue
 			}
 		}
