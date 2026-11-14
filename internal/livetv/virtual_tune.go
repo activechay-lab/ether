@@ -9,16 +9,6 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// Source admission includes the first decoded picture. A scheduled title
-// gets a short bounded attempt before the channel tries another release or
-// substitute, while its programme card keeps the output clock flowing.
-var (
-	virtualAttemptBudget = 6 * time.Second
-	virtualOnNowBudget   = 8 * time.Second
-)
-
-const virtualMaxAttempts = 4
-
 func (s *Service) knownUnavailable(ctx context.Context, key core.RatingKey) bool {
 	if key == 0 || s.o.Availability == nil {
 		return false

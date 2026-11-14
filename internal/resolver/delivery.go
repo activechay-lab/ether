@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/braedonsaunders/ether/internal/core"
+	"github.com/braedonsaunders/ether/internal/releasepolicy"
 )
 
 type deliverySample struct {
@@ -88,13 +89,13 @@ func (s *Service) deliveryFit(r core.Release, caps core.ClientCaps, title *core.
 	return 1
 }
 
-// ChannelSourceAllowed is a hard real-time admission gate. A source larger
-// than the rendition requires recent measured headroom, not a quality score.
+// ChannelSourceAllowed applies the hard channel source envelope first.
+// Measurements may reject a slow encode, never admit a heavier source.
 func (s *Service) ChannelSourceAllowed(r core.Release, caps core.ClientCaps, title *core.Title) bool {
 	if caps.BroadcastBitrateKbps <= 0 {
 		return true
 	}
-	if title == nil || title.Runtime <= 0 {
+	if title == nil || title.Runtime <= 0 || !releasepolicy.ChannelSourceAllowed(r, title.Runtime, caps.BroadcastBitrateKbps) {
 		return false
 	}
 	// Pack and direct-link listings may not have an individual file size.
@@ -115,10 +116,9 @@ func (s *Service) ChannelSourceAllowed(r core.Release, caps core.ClientCaps, tit
 			rate = e.rate
 		}
 	}
-	// Known slow delivery rejects even a small source. Unknown delivery may
-	// try a rendition-sized source; a REMUX needs positive evidence.
+	// Known slow delivery rejects even a small encode.
 	if rate > 0 {
 		return required <= rate*.75
 	}
-	return required*8*1.1 <= float64(caps.BroadcastBitrateKbps)*1000
+	return true
 }
