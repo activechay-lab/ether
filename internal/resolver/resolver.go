@@ -77,10 +77,12 @@ type LibraryProfiles interface {
 
 // Options tunes a Service. Zero values get sensible defaults.
 type Options struct {
-	SearchObserved func(context.Context, *core.Title, []core.Release)
-	Discovered     func(context.Context, *core.Title) []core.Release
-	Observed       func(context.Context, *core.Title, core.Release)
-	Invalidated    func(context.Context, string)
+	// EpisodeIdentity must read only bounded local catalogue data; no upstream calls.
+	EpisodeIdentity func(context.Context, core.RatingKey, int, int, []string) (core.EpisodeIdentity, error)
+	SearchObserved  func(context.Context, *core.Title, []core.Release)
+	Discovered      func(context.Context, *core.Title) []core.Release
+	Observed        func(context.Context, *core.Title, core.Release)
+	Invalidated     func(context.Context, string)
 	// SeriesNamesake reports a same-name show with a different premiere year.
 	SeriesNamesake func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
 	// SeriesYearConflict reports whether the catalogue holds a different
@@ -211,6 +213,7 @@ type inflight struct {
 
 // Service implements core.Resolver.
 type Service struct {
+	episodeIdentity           func(context.Context, core.RatingKey, int, int, []string) (core.EpisodeIdentity, error)
 	years                     seriesYears
 	seriesNamesake            func(context.Context, core.RatingKey, string, int) (bool, error)
 	seriesYearConflict        func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
@@ -288,7 +291,7 @@ var _ core.Resolver = (*Service)(nil)
 // (typically *newznab.Manager); health may be nil (health checks are
 // then skipped); db may be nil (state then lives in memory).
 func New(indexer core.Indexer, health core.HealthChecker, db *sql.DB, cfg config.Config, opts Options) *Service {
-	s := &Service{seriesNamesake: opts.SeriesNamesake, seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, libProfiles: opts.LibraryProfiles, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
+	s := &Service{episodeIdentity: opts.EpisodeIdentity, seriesNamesake: opts.SeriesNamesake, seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, libProfiles: opts.LibraryProfiles, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
 		indexer: indexer, health: health, db: db,
 		bad: map[string]badMark{}, reps: map[string]reputation{},
 		avail: map[int64]availEntry{}, searchCache: map[string]searchCacheEntry{},
@@ -1567,10 +1570,11 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 	// Check the whole result set before profile/exclusion gates: a failed or
 	// lower-quality correct release must not cause failover to a namesake.
 	corroborated := false
-	namesake := sreq.Type == core.TypeEpisode && s.hasSeriesNamesake(ctx, t, sreq)
+	identity := s.localEpisodeIdentity(ctx, t, sreq, results)
+	namesake := sreq.Type == core.TypeEpisode && (identity.shared(sreq) || s.hasSeriesNamesake(ctx, t, sreq))
 	if namesake {
 		for _, rel := range results {
-			if episodeIdentityEvidence(rel, sreq) && rejectIdentityYears(rel, t, sreq, env.lang, func(y int) bool { return s.seriesYearAccepted(t.ShowKey, y) }) == "" {
+			if identity.reject(rel, t, sreq) == "" && episodeIdentityEvidence(rel, sreq) && rejectIdentityYears(rel, t, sreq, env.lang, func(y int) bool { return s.seriesYearAccepted(t.ShowKey, y) }) == "" {
 				corroborated = true
 				break
 			}
@@ -1610,10 +1614,13 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 		}
 		preferred := !fallback && (pinned || (req.Prefer != "" && rel.ID == req.Prefer))
 		var reason string
+		identityReason := identity.reject(rel, t, sreq)
 		if s.HardSubtitleBlocked(ctx, rel) {
 			reason = "blocked hardcoded subtitles"
 		} else if s.rejectedFor(t.Key, rel) {
 			reason = "release rejected for this title"
+		} else if !pinned && identityReason != "" {
+			reason = identityReason
 		} else if !pinned && namesake && episodeNamesakeConflict(rel, t, sreq) {
 			reason = "conflicting namesake identity"
 		} else if !pinned && corroborated && releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year) == 0 && !episodeIdentityEvidence(rel, sreq) {
@@ -1731,7 +1738,7 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 				note("ranked after releases in an accepted audio language")
 			}
 		}
-		cands = append(cands, candidate{identityConflict: namesake && episodeRegionConflict(rel, t), fallback: fallback, policy: policyResult, rel: rel, trace: tr, verified: verified, langOK: langOK, langWanted: langWanted, starved: starved, bandwidth: bandwidth, yearGuessed: yearGuessed, cf: sc.total, keys: keysFor(rel, starved, rc)})
+		cands = append(cands, candidate{identityWeak: !pinned && identity.ambiguous(rel, sreq), identityConflict: namesake && episodeRegionConflict(rel, t), fallback: fallback, policy: policyResult, rel: rel, trace: tr, verified: verified, langOK: langOK, langWanted: langWanted, starved: starved, bandwidth: bandwidth, yearGuessed: yearGuessed, cf: sc.total, keys: keysFor(rel, starved, rc)})
 	}
 	if hot != nil && len(cands) > 0 {
 		s.addPluginScores(hot, profile, cands, trace)
@@ -1739,6 +1746,9 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 	if fallback {
 		order := sourceOrder(profile.QualityOrder)
 		sort.SliceStable(cands, func(i, j int) bool {
+			if cands[i].identityWeak != cands[j].identityWeak {
+				return !cands[i].identityWeak
+			}
 			a, b := fallbackHeight(cands[i].rel.Info), fallbackHeight(cands[j].rel.Info)
 			if a != b {
 				return a > b
@@ -1762,7 +1772,11 @@ func (s *Service) orderCandidates(cands []candidate, title *core.Title, trace *T
 	sort.SliceStable(cands, func(i, j int) bool {
 		return compareCandidates(cands[i], cands[j])
 	})
-	return s.routeSources(cands, title, trace)
+	cands = s.routeSources(cands, title, trace)
+	// Source preferences may reorder quality peers, but cannot promote an
+	// ambiguous namesake above evidence identifying the requested show.
+	sort.SliceStable(cands, func(i, j int) bool { return !cands[i].identityWeak && cands[j].identityWeak })
+	return cands
 }
 
 // rankContext gathers what the comparer keys read for one ranking pass.
