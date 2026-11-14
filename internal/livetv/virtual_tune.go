@@ -9,13 +9,12 @@ import (
 	"github.com/braedonsaunders/ether/internal/core"
 )
 
-// The guide's on-now title gets the whole cold-tune window to open: the
-// opening ident holds the screen meanwhile, and a slow resolve is not a reason
-// to air something else. Stand-ins after a real failure get a short budget
-// each, so a hung "not available yet" still reaches the channel's fallback.
+// Source admission includes the first decoded picture. A scheduled title
+// gets a short bounded attempt before the channel tries another release or
+// substitute, while its programme card keeps the output clock flowing.
 var (
 	virtualAttemptBudget = 6 * time.Second
-	virtualOnNowBudget   = broadcastColdProgrammeWait
+	virtualOnNowBudget   = 8 * time.Second
 )
 
 const virtualMaxAttempts = 4
