@@ -97,7 +97,9 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 			episode = title.Key.Episode()
 		}
 	}
-	if season == 0 {
+	// Zero season denotes a special only when an episode number is known.
+	// Partially hydrated titles still carry usable series/year identity.
+	if season == 0 && episode > 0 {
 		shows := append([]string{title.ShowTitle, title.ShowOriginalTitle}, title.ShowAlternativeTitles...)
 		var siblings []string
 		if rel.Target != nil {
@@ -132,7 +134,7 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 	}
 	year := releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year)
 	if !releaseparse.SeriesYearMatches(year, title.ShowYear) ||
-		(season != 0 && year == 0 && !idMatch && !releaseparse.EpisodeTitleMatches(rel.Name, title.Title)) {
+		((season != 0 || episode <= 0) && year == 0 && !idMatch && !releaseparse.EpisodeTitleMatches(rel.Name, title.Title)) {
 		return false
 	}
 	// A torrent descriptor embeds the expected identity for file selection.

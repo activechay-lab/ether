@@ -1116,12 +1116,13 @@ func noCompatibleStream(err error) bool {
 
 // PlaybackInfo errors must be successful protocol responses: jellyfin-web
 // reads ErrorCode only on a resolved request, and otherwise shows its generic
-// network error. Keep the underlying failure and stage in server diagnostics.
+// network error. Admission failures retain 503 and Retry-After so clients
+// can retry once capacity returns. Keep failure stages in server diagnostics.
 func (i *instance) playbackInfoError(w http.ResponseWriter, stage string, err error) {
 	if i.host.Log != nil {
 		i.host.Log.Warn("PlaybackInfo failed", "protocol", i.protocol, "stage", stage, "err", err)
 	}
-	if i.protocol != "jellyfin" {
+	if i.protocol != "jellyfin" || errors.Is(err, frontend.ErrSessionBusy) || errors.Is(err, frontend.ErrTranscodeCapacity) {
 		streamError(i.protocol, w, err)
 		return
 	}
