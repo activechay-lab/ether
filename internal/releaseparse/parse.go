@@ -82,6 +82,21 @@ var languages = []struct{ token, name string }{
 	{"PT-BR", LanguagePortugueseBrazil}, {"BRAZILIAN", LanguagePortugueseBrazil}, {"DUBLADO", LanguagePortugueseBrazil}, {"NACIONAL", LanguagePortugueseBrazil}, {"PT-PT", LanguagePortuguesePortugal},
 	{"ES-ES", LanguageSpanishSpain}, {"ES-MX", LanguageSpanishLatino}, {"ES-419", LanguageSpanishLatino},
 	{"EN-US", "english"}, {"EN-GB", "english"},
+	// Regional releases spell out languages as English names or endonyms.
+	// These use the same metadata floor and subtitle-position rules as scene tags.
+	{"MALAYALAM", "malayalam"}, {"KANNADA", "kannada"}, {"BENGALI", "bengali"}, {"MARATHI", "marathi"},
+	{"CROATIAN", "croatian"}, {"SERBIAN", "serbian"}, {"BOSNIAN", "bosnian"}, {"SLOVENIAN", "slovenian"},
+	{"SLOVAK", "slovak"}, {"ROMANIAN", "romanian"}, {"BULGARIAN", "bulgarian"}, {"MACEDONIAN", "macedonian"},
+	{"ALBANIAN", "albanian"}, {"LITHUANIAN", "lithuanian"}, {"LATVIAN", "latvian"}, {"ESTONIAN", "estonian"},
+	{"ICELANDIC", "icelandic"}, {"HEBREW", "hebrew"}, {"PERSIAN", "persian"}, {"URDU", "urdu"},
+	{"MALAY", "malay"}, {"TAGALOG", "tagalog"}, {"CATALAN", "catalan"}, {"AFRIKAANS", "afrikaans"},
+	{"GEORGIAN", "georgian"}, {"IRISH", "irish"}, {"MONGOLIAN", "mongolian"}, {"ROMANSH", "romansh"},
+	{"HRVATSKI", "croatian"}, {"SRPSKI", "serbian"}, {"BOSANSKI", "bosnian"}, {"SLOVENSKI", "slovenian"},
+	{"SLOVENSKY", "slovak"}, {"SLOVENSKÝ", "slovak"}, {"HRV", "croatian"}, {"FARSI", "persian"}, {"FILIPINO", "tagalog"},
+	{"DEUTSCH", "german"}, {"FRANÇAIS", "french"}, {"FRANCAIS", "french"}, {"POLSKI", "polish"},
+	{"ITALIANO", "italian"}, {"PORTUGUÊS", "portuguese"}, {"PORTUGUES", "portuguese"}, {"NEDERLANDS", "dutch"},
+	{"ČESKY", "czech"}, {"CESKY", "czech"}, {"MAGYAR", "hungarian"}, {"SUOMI", "finnish"},
+	{"SVENSKA", "swedish"}, {"NORSK", "norwegian"}, {"DANSK", "danish"}, {"TÜRKÇE", "turkish"}, {"TURKCE", "turkish"},
 }
 
 func normalizeSpanishCapRange(s string) string {
