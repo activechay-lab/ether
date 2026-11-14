@@ -2126,8 +2126,7 @@ func episodeMatchesRequest(info core.ReleaseInfo, sreq core.SearchRequest) bool 
 		}
 		return false
 	}
-	return releaseparse.EpisodeMatches(info, sreq.Season, sreq.Episode) ||
-		releaseparse.EpisodeMatchesAbsolute(info, absoluteEpisode(sreq))
+	return releaseparse.EpisodeMatchesNumbering(info, sreq.Season, sreq.Episode, absoluteEpisode(sreq))
 }
 
 func packCoversSeasonCour(info core.ReleaseInfo, sreq core.SearchRequest) bool {
