@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useRef, useState, isValidElement, type ReactElement } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  isValidElement,
+  type ReactElement,
+  createElement,
+} from "react";
 import { Link, useParams, useSearchParams, useLocation } from "react-router-dom";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Button, buttonVariants } from "@braedonsaunders/appkit-ui";
 import { DomainPage } from "../../components/layout";
@@ -20,6 +28,67 @@ function matches(path: string, _code: string, patterns: string[]) {
           /host|contract|sdk/.test(path)) ||
         (pattern.startsWith("@host:") && path.includes("sdk/typescript/src/host.ts"))
       : path.startsWith(pattern),
+  );
+}
+// Heading IDs share Markdown's source line positions, including duplicate titles.
+function destination(text: string, prefix: string, fallback: string, terms: string[]) {
+  const lower = text.toLowerCase();
+  const hits = terms.map((term) => lower.indexOf(term)).filter((at) => at >= 0);
+  const at = hits.length ? Math.min(...hits) : 0;
+  let heading = fallback,
+    anchor = prefix,
+    offset = 0,
+    fence = "";
+  for (const [index, line] of text.split("\n").entries()) {
+    if (offset > at) break;
+    const marker = line.match(/^\s*(`{3,}|~{3,})/);
+    if (marker) {
+      if (!fence) fence = marker[1]![0]!;
+      else if (marker[1]![0] === fence) fence = "";
+    }
+    const match = !fence && line.match(/^#{1,6}\s+(.+?)\s*#*$/);
+    if (match) {
+      heading = match[1]!;
+      anchor = `${prefix}:heading:${index + 1}`;
+    }
+    offset += line.length + 1;
+  }
+  return { heading, anchor };
+}
+function snippet(text: string, terms: string[]) {
+  const plain = text
+    .replace(/^\s*(`{3,}|~{3,}).*$/gm, "")
+    .replace(/!?(\[([^\]]+)\])\([^)]*\)/g, "$2")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/`+/g, "")
+    .replace(/\*\*|__/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const lower = plain.toLowerCase();
+  const hits = terms.map((term) => lower.indexOf(term)).filter((at) => at >= 0);
+  const at = hits.length ? Math.min(...hits) : 0;
+  let start = Math.max(0, at - 100),
+    end = Math.min(plain.length, at + 380);
+  // Keep complete whitespace-delimited words, including code identifiers.
+  while (start > 0 && !/\s/.test(plain[start - 1]!)) start--;
+  while (end < plain.length && !/\s/.test(plain[end]!)) end++;
+  return `${start ? "… " : ""}${plain.slice(start, end).trim()}${end < plain.length ? " …" : ""}`;
+}
+function Highlight({ text, terms }: { text: string; terms: string[] }) {
+  const escaped = terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const parts = text.split(new RegExp(`(${escaped.join("|")})`, "gi"));
+  return (
+    <>
+      {parts.map((part, i) =>
+        terms.includes(part.toLowerCase()) ? (
+          <mark key={i} className="rounded bg-amber-300/20 px-0.5 text-inherit font-semibold">
+            {part}
+          </mark>
+        ) : (
+          part
+        ),
+      )}
+    </>
   );
 }
 function Copy({ value }: { value: string }) {
@@ -43,11 +112,26 @@ function Copy({ value }: { value: string }) {
     </Button>
   );
 }
-function Markdown({ text }: { text: string }) {
+function Markdown({ text, anchorPrefix }: { text: string; anchorPrefix: string }) {
+  const headings = Object.fromEntries(
+    [1, 2, 3, 4, 5, 6].map((level) => [
+      `h${level}`,
+      (({ node, children }) =>
+        createElement(
+          `h${level}`,
+          {
+            id: `${anchorPrefix}:heading:${node?.position?.start.line}`,
+            className: "scroll-mt-20",
+          },
+          children,
+        )) as Components["h1"],
+    ]),
+  ) as Components;
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
       components={{
+        ...headings,
         a: ({ href, children }) =>
           href?.startsWith("/plugins/reference/") ? (
             <Link to={href}>{children}</Link>
@@ -107,13 +191,27 @@ export default function DeveloperReference() {
               .filter((g) =>
                 terms.every((term) => `${g.title} ${g.body}`.toLowerCase().includes(term)),
               )
-              .map((g) => ({ path: g.title, code: g.body, topic: g.id })),
+              .map((g) => ({
+                path: g.title,
+                code: g.body,
+                topic: g.id,
+                topicTitle: g.title,
+                ...destination(g.body, `guide:${g.id}`, g.title, terms),
+              })),
             ...corpus
               .filter((s) => terms.every((term) => s.search.includes(term)))
-              .map((s) => ({
-                ...s,
-                topic: guides.find((g) => matches(s.path, s.code, g.patterns))?.id ?? "manifest",
-              })),
+              .map((s) => {
+                const owner = guides.find((g) => matches(s.path, s.code, g.patterns))!;
+                const label = s.path.split("#")[1] ?? s.path.split("/").at(-1) ?? s.path;
+                return {
+                  ...s,
+                  topic: owner.id,
+                  topicTitle: owner.title,
+                  ...(s.path.endsWith(".md") && owner.id !== "all-contract"
+                    ? destination(s.code, s.path, label, terms)
+                    : { heading: label, anchor: s.path }),
+                };
+              }),
           ]
         : [],
     [query],
@@ -153,6 +251,8 @@ export default function DeveloperReference() {
     }
     const target = document.getElementById(id);
     if (target instanceof HTMLDetailsElement) target.open = true;
+    const details = target?.closest("details");
+    if (details) details.open = true;
     target?.scrollIntoView({ block: "start" });
   }, [topic, location.hash, query]);
   const sections = guide ? corpus.filter((s) => matches(s.path, s.code, guide.patterns)) : [];
@@ -200,8 +300,8 @@ export default function DeveloperReference() {
                   <Link
                     key={g.id}
                     to={`/plugins/reference/${g.id}`}
-                    aria-current={topic === g.id ? "page" : undefined}
-                    className={`block rounded-lg px-3 py-2 text-sm hover:bg-surface ${topic === g.id ? "bg-surface font-semibold text-accent" : "text-fg-muted"}`}
+                    aria-current={!terms.length && topic === g.id ? "page" : undefined}
+                    className={`block rounded-lg px-3 py-2 text-sm hover:bg-surface ${!terms.length && topic === g.id ? "bg-surface font-semibold text-accent" : "text-fg-muted"}`}
                   >
                     {g.title}
                   </Link>
@@ -217,18 +317,17 @@ export default function DeveloperReference() {
               </h2>
               {results.length === 0 ? <p>{t("No results")}</p> : null}
               {results.slice(0, 100).map((s) => {
-                const at = Math.max(0, s.code.toLowerCase().indexOf(terms[0] ?? ""));
                 return (
                   <section key={s.path} className="rounded-xl border border-border p-4">
                     <Link
                       className="break-all font-medium text-accent"
-                      to={`/plugins/reference/${s.topic}${s.path.includes("/") ? `#${encodeURIComponent(s.path)}` : ""}`}
+                      to={`/plugins/reference/${s.topic}#${encodeURIComponent(s.anchor)}`}
                     >
-                      {s.path}
+                      {s.topicTitle} › {s.heading}
                     </Link>
-                    <pre className="mt-3 whitespace-pre-wrap text-xs text-fg-muted">
-                      {s.code.slice(Math.max(0, at - 100), at + 500)}
-                    </pre>
+                    <p className="mt-3 whitespace-pre-wrap break-words text-sm text-fg-muted">
+                      <Highlight text={snippet(s.code, terms)} terms={terms} />
+                    </p>
                   </section>
                 );
               })}
@@ -236,19 +335,21 @@ export default function DeveloperReference() {
             </>
           ) : guide ? (
             <>
-              <h1 className="text-2xl font-semibold">{guide.title}</h1>
-              <Markdown text={guide.body} />
+              <h1 id={`guide:${guide.id}`} className="scroll-mt-20 text-2xl font-semibold">
+                {guide.title}
+              </h1>
+              <Markdown text={guide.body} anchorPrefix={`guide:${guide.id}`} />
               {sections.map((s) =>
                 s.path.endsWith(".md") && guide.id !== "all-contract" ? (
-                  <section key={s.path} id={s.path} className="scroll-mt-6">
+                  <section key={s.path} id={s.path} className="scroll-mt-20">
                     <h2 className="break-all text-base font-semibold">{s.path}</h2>
-                    <Markdown text={s.code} />
+                    <Markdown text={s.code} anchorPrefix={s.path} />
                   </section>
                 ) : (
                   <details
                     key={s.path}
                     id={s.path}
-                    className="scroll-mt-6 rounded-xl border border-border p-4"
+                    className="scroll-mt-20 rounded-xl border border-border p-4"
                   >
                     <summary className="cursor-pointer break-all font-mono text-xs">
                       {s.path}
