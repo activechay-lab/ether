@@ -79,6 +79,7 @@ type LibraryProfiles interface {
 type Options struct {
 	// EpisodeIdentity must read only bounded local catalogue data; no upstream calls.
 	EpisodeIdentity func(context.Context, core.RatingKey, int, int, []string) (core.EpisodeIdentity, error)
+	SpecialTitles   func(context.Context, int64) []string
 	SearchObserved  func(context.Context, *core.Title, []core.Release)
 	Discovered      func(context.Context, *core.Title) []core.Release
 	Observed        func(context.Context, *core.Title, core.Release)
@@ -214,6 +215,7 @@ type inflight struct {
 // Service implements core.Resolver.
 type Service struct {
 	episodeIdentity           func(context.Context, core.RatingKey, int, int, []string) (core.EpisodeIdentity, error)
+	specialTitles             func(context.Context, int64) []string
 	years                     seriesYears
 	seriesNamesake            func(context.Context, core.RatingKey, string, int) (bool, error)
 	seriesYearConflict        func(ctx context.Context, show core.RatingKey, title string, year int) (bool, error)
@@ -291,7 +293,7 @@ var _ core.Resolver = (*Service)(nil)
 // (typically *newznab.Manager); health may be nil (health checks are
 // then skipped); db may be nil (state then lives in memory).
 func New(indexer core.Indexer, health core.HealthChecker, db *sql.DB, cfg config.Config, opts Options) *Service {
-	s := &Service{episodeIdentity: opts.EpisodeIdentity, seriesNamesake: opts.SeriesNamesake, seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, libProfiles: opts.LibraryProfiles, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
+	s := &Service{episodeIdentity: opts.EpisodeIdentity, specialTitles: opts.SpecialTitles, seriesNamesake: opts.SeriesNamesake, seriesYearConflict: opts.SeriesYearConflict, animeCour: opts.AnimeCour, libProfiles: opts.LibraryProfiles, searchObserved: opts.SearchObserved, discovered: opts.Discovered, observed: opts.Observed, invalidated: opts.Invalidated,
 		indexer: indexer, health: health, db: db,
 		bad: map[string]badMark{}, reps: map[string]reputation{},
 		avail: map[int64]availEntry{}, searchCache: map[string]searchCacheEntry{},
@@ -565,6 +567,9 @@ func searchRequestFor(t *core.Title) core.SearchRequest {
 
 func (s *Service) searchRequest(ctx context.Context, t *core.Title) core.SearchRequest {
 	req := searchRequestFor(t)
+	if s != nil && s.specialTitles != nil && req.Type == core.TypeEpisode && req.Season == 0 {
+		req.SpecialTitles = s.specialTitles(ctx, req.IDs.TMDB)
+	}
 	if s != nil && s.animeCour != nil && req.Anime && req.Type == core.TypeEpisode && req.Season > 0 && req.Episode > 1 && req.IDs.TMDB > 0 {
 		if cour, ep, ok, err := s.animeCour.LookupCour(ctx, req); err == nil && ok {
 			req.Cour, req.CourEpisode = cour, ep
@@ -1969,6 +1974,9 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		return "indexer placeholder"
 	}
 	isEpisode := sreq.Type == core.TypeEpisode
+	if isEpisode && sreq.Season == 0 && !releaseparse.SpecialMatches(rel.Name, sreq.EpisodeTitle, sreq.SpecialTitles, specialShowTitles(sreq)) {
+		return "special identity mismatch"
+	}
 	idMatch, idConflict := releaseparse.CompareTitleIDs(rel.ReportedTitleIDs(), sreq.IDs)
 	if idConflict {
 		return "indexer title identifier mismatch"
@@ -2000,6 +2008,11 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		matchesAlternativeTitle(rel.Info, sreq.AlternativeTitles) ||
 		(!isEpisode && matchesAlternativeTitle(rel.Info, t.AlternativeTitles)) ||
 		(isEpisode && matchesAlternativeTitle(rel.Info, t.ShowAlternativeTitles))
+	if isEpisode && sreq.Season == 0 {
+		prefix := core.ReleaseInfo{Title: releaseparse.SpecialSeriesTitle(rel.Name)}
+		titleOK = titleOK || releaseparse.TitleMatches(prefix, wantTitle) ||
+			(t.ShowOriginalTitle != "" && releaseparse.TitleMatches(prefix, t.ShowOriginalTitle)) || matchesAlternativeTitle(prefix, sreq.AlternativeTitles)
+	}
 	if titleOK && !idMatch && regionTagConflicts(rel.Info.Title, wantTitle, t.Countries) {
 		titleOK = false
 	}
@@ -2018,7 +2031,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 		if !releaseparse.SeriesYearMatches(releaseYear, sreq.Year) && (acceptYear == nil || !acceptYear(releaseYear)) {
 			return "series year mismatch"
 		}
-		if releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !episodeTitleMatchesRelease(rel, sreq.EpisodeTitle) && !releaseparse.EpisodeTitleEvidence(rel.Name, sreq.EpisodeTitle) {
+		if sreq.Season != 0 && releaseYear == 0 && !idMatch && !localizedEpisodeTitle(rel.Info, t, catalogLang) && !episodeTitleMatchesRelease(rel, sreq.EpisodeTitle) && !releaseparse.EpisodeTitleEvidence(rel.Name, sreq.EpisodeTitle) {
 			return "episode title mismatch"
 		}
 		if rel.Info.FullSeason {
@@ -2040,7 +2053,7 @@ func rejectIdentityYears(rel core.Release, t *core.Title, sreq core.SearchReques
 			if miniseriesPart != sreq.Episode {
 				return "season/episode mismatch"
 			}
-		} else if !episodeMatchesRequest(rel.Info, sreq) {
+		} else if !(sreq.Season == 0 && len(rel.Info.Seasons) == 0 && len(rel.Info.Episodes) == 0 && len(rel.Info.AbsoluteEpisodes) == 0 && releaseparse.SpecialTitleEvidence(rel.Name, sreq.EpisodeTitle, specialShowTitles(sreq)...)) && !episodeMatchesRequest(rel.Info, sreq) {
 			return "season/episode mismatch"
 		}
 	} else {
@@ -2361,6 +2374,9 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 		target := *rel.Target
 		target.ShowYear, target.EpisodeTitle = sreq.Year, sreq.EpisodeTitle
 		target.FileName = rel.FileName
+		if sreq.Season == 0 {
+			target.ShowTitles, target.SpecialTitles = specialShowTitles(sreq), sreq.SpecialTitles
+		}
 		target.AbsoluteEpisode = releaseparse.AnimeSearchEpisode(sreq)
 		target.Cour, target.CourEpisode = sreq.Cour, sreq.CourEpisode
 		target.ExpectedIDs, target.ReportedIDs = sreq.IDs, rel.ReportedTitleIDs()
@@ -2368,6 +2384,9 @@ func withTarget(rel core.Release, sreq core.SearchRequest) core.Release {
 		return rel // enrich cached identities without deriving their ID again
 	}
 	target := core.ReleaseTarget{AbsoluteEpisode: releaseparse.AnimeSearchEpisode(sreq), Cour: sreq.Cour, CourEpisode: sreq.CourEpisode, Season: sreq.Season, Episode: sreq.Episode, ShowYear: sreq.Year, EpisodeTitle: sreq.EpisodeTitle, ExpectedIDs: sreq.IDs, ReportedIDs: rel.ReportedTitleIDs(), FileName: rel.FileName}
+	if sreq.Season == 0 {
+		target.ShowTitles, target.SpecialTitles = specialShowTitles(sreq), sreq.SpecialTitles
+	}
 	if rel.Info.FullSeason {
 		target.PackID = rel.ID
 		rel.ID = core.TargetReleaseID(rel.ID, target)

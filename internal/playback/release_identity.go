@@ -20,7 +20,8 @@ func payloadMatchesTitle(nzb []byte, title *core.Title) bool {
 		return true
 	}
 	var p struct {
-		Path string `json:"path"`
+		Path   string              `json:"path"`
+		Target *core.ReleaseTarget `json:"target"`
 	}
 	if err := json.Unmarshal(nzb[len(debridPayloadPrefix):], &p); err != nil || p.Path == "" {
 		return true
@@ -36,6 +37,20 @@ func payloadMatchesTitle(nzb []byte, title *core.Title) bool {
 	}
 	if episode <= 0 {
 		return true
+	}
+	if season == 0 {
+		if p.Target == nil || p.Target.Season != 0 || p.Target.Episode != episode {
+			return false
+		}
+		if !releaseparse.SpecialMatches(p.Path, title.Title, p.Target.SpecialTitles, p.Target.ShowTitles) {
+			return false
+		}
+		actual := episode
+		if p.Target.AddonSpecialEpisode > 0 {
+			actual = p.Target.AddonSpecialEpisode
+		}
+		info := releaseparse.Parse(path.Base(strings.ReplaceAll(p.Path, "\\", "/")))
+		return releaseparse.EpisodeMatches(info, 0, actual) || (len(info.Seasons) == 0 && len(info.Episodes) == 0 && len(info.AbsoluteEpisodes) == 0 && releaseparse.SpecialTitleEvidence(path.Base(strings.ReplaceAll(p.Path, "\\", "/")), title.Title, p.Target.ShowTitles...))
 	}
 	normPath := strings.ReplaceAll(p.Path, "\\", "/")
 	baseInfo := releaseparse.Parse(path.Base(normPath))
@@ -82,6 +97,16 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 			episode = title.Key.Episode()
 		}
 	}
+	if season == 0 {
+		shows := append([]string{title.ShowTitle, title.ShowOriginalTitle}, title.ShowAlternativeTitles...)
+		var siblings []string
+		if rel.Target != nil {
+			siblings = rel.Target.SpecialTitles
+		}
+		if !releaseparse.SpecialMatches(rel.Name, title.Title, siblings, shows) {
+			return false
+		}
+	}
 	info := rel.Info
 	if len(info.Episodes) == 0 && !info.FullSeason {
 		info = releaseparse.Parse(rel.Name)
@@ -107,7 +132,7 @@ func releaseMatchesTitle(rel core.Release, title *core.Title) bool {
 	}
 	year := releaseparse.EpisodeSeriesYear(rel.Name, rel.Info.Year)
 	if !releaseparse.SeriesYearMatches(year, title.ShowYear) ||
-		(year == 0 && !idMatch && !releaseparse.EpisodeTitleMatches(rel.Name, title.Title)) {
+		(season != 0 && year == 0 && !idMatch && !releaseparse.EpisodeTitleMatches(rel.Name, title.Title)) {
 		return false
 	}
 	// A torrent descriptor embeds the expected identity for file selection.
