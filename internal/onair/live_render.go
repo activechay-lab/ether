@@ -439,7 +439,10 @@ func (s *Service) OpenMoment(
 		promoteDone := make(chan struct{})
 		stream := &MomentStream{scenePoster: rawJob.Doc.Poster, sceneDuration: rawJob.Doc.Duration, mode: "static-plate", loop: loop, fpsNum: fpsNum, fpsDen: fpsDen, width: width, height: height, baseReader: reader, renderFn: renderFn, service: s, lookID: rawJob.Look, moment: r.Moment,
 			overlayDoc: overlayDoc, overlayBnd: overlayBind,
-			stopLive: func(bool) { cancel(); <-promoteDone },
+			stopLive: func(bool) {
+				cancel()
+				<-promoteDone
+			},
 			promote: func() FrameReader {
 				select {
 				case dec := <-ready:
