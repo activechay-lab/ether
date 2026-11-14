@@ -238,9 +238,6 @@ func (s *Service) readinessSchedule(c Channel, from, until time.Time) []Programm
 	return s.readyProgrammes(c, ent.playback.slice(c.ID, from, until))
 }
 func (s *Service) replaceUnready(c Channel, ps []Programme) {
-	if !s.readinessWatched(c.ID) {
-		return
-	}
 	for _, p := range ps {
 		if p.Item.Key == 0 {
 			continue
@@ -274,19 +271,26 @@ func (s *Service) replaceUnready(c Channel, ps []Programme) {
 			}
 		}
 		for n := 0; n < len(pool) && n < 64; n++ {
-			select {
-			case <-s.ctx.Done():
-				return
-			case <-time.After(100 * time.Millisecond):
-			}
 			it := pool[(start+n)%len(pool)]
-			if !s.readinessWatched(c.ID) {
-				break
-			}
-			s.checkReady(s.ctx, it.Key)
 			s.mu.Lock()
-			ok := s.readyTitles[it.Key]
+			ok, known := s.readyTitles[it.Key]
 			s.mu.Unlock()
+			// Guides can use readiness already learned by playback. Only an
+			// active viewer may cause a new provider lookup.
+			if (!known || !ok) && s.readinessWatched(c.ID) {
+				select {
+				case <-s.ctx.Done():
+					return
+				case <-time.After(100 * time.Millisecond):
+				}
+				if !s.readinessWatched(c.ID) {
+					return
+				}
+				s.checkReady(s.ctx, it.Key)
+				s.mu.Lock()
+				ok = s.readyTitles[it.Key]
+				s.mu.Unlock()
+			}
 			if !ok || it.Key == p.Item.Key {
 				continue
 			}

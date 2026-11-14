@@ -22,13 +22,22 @@ func TestChannelReadinessInvariants(t *testing.T) {
 	if !ok || sub.Offset(now) != 6*time.Minute {
 		t.Fatalf("short replacement offset: %+v", sub)
 	}
-	s := testService(t, Options{Now: func() time.Time { return now }, Availability: availFunc(func(k core.RatingKey) (bool, bool) { return true, k == item.Key })})
+	checks := 0
+	s := testService(t, Options{Now: func() time.Time { return now }, Availability: availFunc(func(k core.RatingKey) (bool, bool) { checks++; return true, k == item.Key })})
 	c := Channel{ID: "c", Items: []Item{slot.Item, item}}
 	future := slot
 	future.Start = now.Add(time.Minute)
 	future.End = future.Start.Add(30 * time.Minute)
 	s.checkReady(context.Background(), slot.Item.Key)
 	s.replaceUnready(c, []Programme{future})
+	if checks != 1 {
+		t.Fatal("unwatched guide queried a provider")
+	}
+	s.checkReady(context.Background(), item.Key)
+	s.replaceUnready(c, []Programme{future})
+	if checks != 2 {
+		t.Fatal("known guide replacement queried a provider")
+	}
 	guide := s.readyProgrammes(c, []Programme{future})
 	if guide[0].Item.Key != item.Key || guide[0].Start != future.Start || guide[0].End != future.End {
 		t.Fatalf("guide substitution: %+v", guide)
