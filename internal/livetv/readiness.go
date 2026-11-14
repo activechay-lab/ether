@@ -78,6 +78,9 @@ func (s *Service) readinessLoop() {
 		}
 		s.mu.Unlock()
 		for _, id := range ids {
+			if !s.readinessWatched(id) {
+				continue
+			}
 			c, err := s.Channel(s.ctx, id)
 			if err != nil || c.Kind != "virtual" {
 				continue
@@ -139,6 +142,9 @@ func (s *Service) readinessLoop() {
 			}
 			for _, p := range ps {
 				if p.Item.Key != 0 {
+					if !s.readinessWatched(id) {
+						break
+					}
 					s.checkReady(s.ctx, p.Item.Key)
 				}
 				select {
@@ -151,11 +157,27 @@ func (s *Service) readinessLoop() {
 				if i >= 12 {
 					break
 				}
+				if !s.readinessWatched(id) {
+					break
+				}
 				s.checkReady(s.ctx, it.Key)
 			}
 			s.replaceUnready(c, ps)
 		}
 	}
+}
+
+// Guide browsing may compile schedules, but must not acquire unrelated media.
+// Recheck between every paced lookup so closing a viewer ends provider work.
+func (s *Service) readinessWatched(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ss := range s.sessions {
+		if ss.info.Channel.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) demandReadinessLocked(id string, duration time.Duration) {
@@ -216,6 +238,9 @@ func (s *Service) readinessSchedule(c Channel, from, until time.Time) []Programm
 	return s.readyProgrammes(c, ent.playback.slice(c.ID, from, until))
 }
 func (s *Service) replaceUnready(c Channel, ps []Programme) {
+	if !s.readinessWatched(c.ID) {
+		return
+	}
 	for _, p := range ps {
 		if p.Item.Key == 0 {
 			continue
@@ -255,6 +280,9 @@ func (s *Service) replaceUnready(c Channel, ps []Programme) {
 			case <-time.After(100 * time.Millisecond):
 			}
 			it := pool[(start+n)%len(pool)]
+			if !s.readinessWatched(c.ID) {
+				break
+			}
 			s.checkReady(s.ctx, it.Key)
 			s.mu.Lock()
 			ok := s.readyTitles[it.Key]

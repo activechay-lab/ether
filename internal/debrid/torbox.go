@@ -101,6 +101,24 @@ type tbEnvelope struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// TorBox uses false as well as null for an absent error. Decode diagnostic
+// fields independently so a successful payload is never rejected for its copy.
+func (e *tbEnvelope) UnmarshalJSON(body []byte) error {
+	var wire struct {
+		Success bool            `json:"success"`
+		Error   json.RawMessage `json:"error"`
+		Detail  json.RawMessage `json:"detail"`
+		Data    json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &wire); err != nil {
+		return err
+	}
+	e.Success, e.Data = wire.Success, wire.Data
+	_ = json.Unmarshal(wire.Error, &e.Error)
+	_ = json.Unmarshal(wire.Detail, &e.Detail)
+	return nil
+}
+
 type tbTorrent struct {
 	ID               json.Number `json:"id"`
 	Hash             string      `json:"hash"`
@@ -129,6 +147,9 @@ func (p *torBox) do(ctx context.Context, r apiRequest) (json.RawMessage, error) 
 	derr := decodeJSON("torbox", body, &env)
 	if status >= 200 && status < 300 && derr == nil && env.Success {
 		return env.Data, nil
+	}
+	if derr != nil {
+		return nil, derr
 	}
 	logProviderResponse(ctx, p.key, status, env.Error, env.Detail)
 	return nil, p.classify(status, env)
