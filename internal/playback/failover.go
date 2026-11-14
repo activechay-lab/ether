@@ -100,11 +100,12 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 		}
 	}
 	var (
-		tried          []string
-		alternates     []core.Release
-		lastErr        error
-		fallbackGen    *generation
-		fallbackBurned bool
+		tried             []string
+		alternates        []core.Release
+		lastErr           error
+		fallbackGen       *generation
+		fallbackBurned    bool
+		wrongContentSkips int
 		// allUncached: every release that failed to open was a torrent
 		// no debrid account could serve (uncached, blocked, add refused).
 		allUncached = true
@@ -234,6 +235,11 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 			return nil, ctx.Err()
 		}
 		lastErr = err
+		// Bound release-level skips separately from actual playback failures.
+		if errors.Is(err, core.ErrWrongContent) && wrongContentSkips < 8 {
+			wrongContentSkips++
+			attempt--
+		}
 		if s.exact {
 			if errors.Is(err, core.ErrNotFound) {
 				return nil, fmt.Errorf("%w: %w", core.ErrNotAvailable, core.ErrSourceChanged)
@@ -246,7 +252,7 @@ func (m *Manager) openInitial(ctx context.Context, s *session, profile core.Qual
 		if len(res.Alternates) > 0 {
 			alternates = res.Alternates
 		}
-		res = nil
+		res, cached, fromResume = nil, nil, false
 	}
 	if fallbackGen != nil {
 		g := fallbackGen
@@ -379,7 +385,7 @@ func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Reso
 	// Recheck at the shared open boundary, including failover and old
 	// cached alternates. A mismatch is request-specific, not a bad release.
 	if !releaseMatchesTitle(res.Release, s.title) || !payloadMatchesTitle(res.NZB, s.title) {
-		return nil, fmt.Errorf("%w: release does not match requested episode", core.ErrNotAvailable)
+		return nil, fmt.Errorf("%w: release does not match requested episode", core.ErrWrongContent)
 	}
 	openStarted := time.Now()
 	src, finish, err := m.openSource(ctx, s.sources, res)
