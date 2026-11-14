@@ -717,7 +717,17 @@ func profileDeliveryAllowed(p *core.ClientCapabilityProfiles, d core.Decision, i
 	}
 	output := info
 	output.Container = d.Container
-	output.Streams = slices.Clone(info.Streams)
+	// Segmented output maps one video and the selected audio, not every
+	// track in the input file. Retain their input indices for the encoder,
+	// but evaluate output predicates (notably IsSecondaryAudio) against
+	// this actual stream set. A second language becomes the only audio.
+	output.Streams = nil
+	if video := info.Video(); video != nil {
+		output.Streams = append(output.Streams, *video)
+	}
+	if audio := profileStream(info, "audio", d.AudioStream); audio != nil {
+		output.Streams = append(output.Streams, *audio)
+	}
 	for i := range output.Streams {
 		s := &output.Streams[i]
 		if s.Type == "video" {
