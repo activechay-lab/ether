@@ -30,7 +30,10 @@ func (h *Handler) webPlayer(w http.ResponseWriter, r *http.Request) {
 	origin := ""
 	if err == nil {
 		for _, info := range infos {
-			if info.Descriptor.ID != "jellyfin" || !info.Enabled || !info.Status.Mounted || !info.Status.WebPlayerReady {
+			// The web client downloads on first use: /web answers a
+			// self-refreshing "Preparing" page meanwhile, so the button must
+			// not wait for an install nobody has triggered yet.
+			if info.Descriptor.ID != "jellyfin" || !info.Enabled || !info.Status.Mounted {
 				continue
 			}
 			info = h.presentConnectURLs(r, info)
