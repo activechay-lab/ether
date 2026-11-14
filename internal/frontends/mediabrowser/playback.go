@@ -386,11 +386,13 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		plan, err = i.host.Sessions.Plan(r.Context(), planBase)
 	}
 	if err != nil {
-		if playback && noCompatibleStream(err) {
+		if i.protocol == "jellyfin" {
+			i.playbackInfoError(w, "plan", err)
+		} else if playback && noCompatibleStream(err) {
 			i.writeNoCompatibleStream(w)
-			return
+		} else {
+			http.Error(w, "Playback unavailable", 503)
 		}
-		http.Error(w, "Playback unavailable", 503)
 		return
 	}
 	if playback && (plan.Estimated || (channel == "" && plan.Media.Estimated)) {
@@ -408,7 +410,11 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if !allowed && plan.Decision.Kind == "transcode" {
-		http.Error(w, "Playback unavailable", 422)
+		if i.protocol == "jellyfin" {
+			i.playbackInfoError(w, "transcoding disabled", frontend.ErrNotAvailable)
+		} else {
+			http.Error(w, "Playback unavailable", 422)
+		}
 		return
 	}
 	sourceID = ids.RatingKeyGUID(key)
@@ -474,7 +480,11 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 		session, err := i.host.Sessions.Open(r.Context(), frontend.OpenRequest{Protocol: i.protocol, PlanID: plan.ID, Viewer: v, Device: dev})
 		if err != nil {
 			if !jellyfinStaticFallback(err) || !staticPlayable {
-				http.Error(w, "Playback unavailable", 503)
+				if i.protocol == "jellyfin" {
+					i.playbackInfoError(w, "open", err)
+				} else {
+					http.Error(w, "Playback unavailable", 503)
+				}
 				return
 			}
 			if i.host.Log != nil {
@@ -496,7 +506,7 @@ func (i *instance) playbackInfo(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				_ = i.host.Sessions.Stop(r.Context(), frontend.SessionAccess{Viewer: v, Device: dev, Protocol: i.protocol}, session.ID)
 				if !jellyfinStaticFallback(err) || !staticPlayable {
-					streamError(i.protocol, w, err)
+					i.playbackInfoError(w, "start stream", err)
 					return
 				}
 				if i.host.Log != nil {
@@ -1083,6 +1093,26 @@ func timelineItem(body timelineRequest) (frontend.RatingKey, bool) {
 
 func noCompatibleStream(err error) bool {
 	return errors.Is(err, frontend.ErrNotFound) || errors.Is(err, frontend.ErrNotAvailable) || errors.Is(err, frontend.ErrSourceGone)
+}
+
+// PlaybackInfo errors must be successful protocol responses: jellyfin-web
+// reads ErrorCode only on a resolved request, and otherwise shows its generic
+// network error. Keep the underlying failure and stage in server diagnostics.
+func (i *instance) playbackInfoError(w http.ResponseWriter, stage string, err error) {
+	if i.host.Log != nil {
+		i.host.Log.Warn("PlaybackInfo failed", "protocol", i.protocol, "stage", stage, "err", err)
+	}
+	if i.protocol != "jellyfin" {
+		streamError(i.protocol, w, err)
+		return
+	}
+	code := "NoCompatibleStream"
+	if errors.Is(err, frontend.ErrUnauthorized) {
+		code = "NotAllowed"
+	} else if errors.Is(err, frontend.ErrStreamLimit) {
+		code = "RateLimitExceeded"
+	}
+	jsonReply(w, map[string]any{"MediaSources": []any{}, "PlaySessionId": "", "ErrorCode": code})
 }
 
 func (i *instance) writeNoCompatibleStream(w http.ResponseWriter) {
