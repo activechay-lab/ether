@@ -1176,8 +1176,9 @@ func (b *broadcast) step(now time.Time) bool {
 	// the styled screen card is the look's off-air scene. Hold the opening
 	// look (the live ident plate, or the last opening picture) until the
 	// programme airs or the cold bound expires. A scheduled off-air
-	// element is not a programme, so it still airs as itself.
-	if frame.Video == nil && !introActive && !b.airedProgramme && current.programme && now.Before(b.coldHoldUntil) {
+	// element is not a programme, so it still airs as itself. Providers
+	// without an opening title use their prewarmed signal screen instead.
+	if frame.Video == nil && !introActive && !b.airedProgramme && current.programme && (b.momentCardPlan.id != "" || b.coldHoldFrame != nil) && now.Before(b.coldHoldUntil) {
 		if b.momentCard != nil {
 			boundary := (b.tick*int64(b.format.FPSDen)*int64(time.Second))%int64(b.segment*time.Duration(b.format.FPSNum)) == 0
 			if b.momentCardPending.Video != nil {

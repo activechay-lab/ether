@@ -115,7 +115,8 @@ func TestColdIdentFillMinimumCapAndCrossfade(t *testing.T) {
 }
 
 // A welcome can share the scheduled programme identity. A slow welcome must
-// neither steal that input nor prevent the prewarmed signal from airing.
+// neither steal that input nor delay the programme after its opening interval.
+// The prepared welcome owns frame zero, even when its first decode is slow.
 func TestColdWelcomeKeepsLiveSignalReady(t *testing.T) {
 	for _, fill := range []bool{false, true} {
 		t.Run(map[bool]string{false: "scheduled", true: "fill"}[fill], func(t *testing.T) {
@@ -145,11 +146,11 @@ func TestColdWelcomeKeepsLiveSignalReady(t *testing.T) {
 					t.Fatalf("output stopped: %d frames", len(frames))
 				}
 				for tick, frame := range frames {
-					if frame.Video[0] != 40 && frame.Video[0] != 80 {
-						t.Fatalf("tick %d: unexpected black or late welcome picture %d", tick, frame.Video[0])
+					if frame.Video[0] < 40 || frame.Video[0] > 200 {
+						t.Fatalf("tick %d: unexpected black or invalid opening picture %d", tick, frame.Video[0])
 					}
 				}
-				if frames[0].Video[0] != 40 || frames[135].Video[0] != 80 {
+				if frames[0].Video[0] != 200 || frames[135].Video[0] != 80 {
 					t.Fatal("signal or programme was not ready on time")
 				}
 			})
