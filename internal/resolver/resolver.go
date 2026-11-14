@@ -1588,6 +1588,14 @@ func (s *Service) rankPass(ctx context.Context, env rankEnv, req core.ResolveReq
 	for ri, rel := range results {
 		rel = withTarget(rel, sreq)
 		ct := CandidateTrace{ReleaseID: rel.ID, Name: rel.Name, Indexer: rel.Indexer, Size: rel.Size, Height: rel.Info.Height}
+		if !s.ChannelSourceAllowed(sizedForEpisode(rel), req.Client, t) {
+			clientRejected = true
+			ct.Rejected, ct.Reason = true, "source exceeds channel delivery budget"
+			if trace != nil {
+				trace.Candidates = append(trace.Candidates, ct)
+			}
+			continue
+		}
 		if fallback {
 			h := fallbackHeight(rel.Info)
 			if h == 0 || h >= profile.MinHeight {

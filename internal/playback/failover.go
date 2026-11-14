@@ -57,7 +57,7 @@ func (m *Manager) preparedResolution(ctx context.Context, s *session, profile co
 			}
 		}
 	}
-	if res != nil && m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
+	if res != nil && (slices.Contains(s.caps.BroadcastExclude, res.Release.ID) || !m.channelSourceAllowed(s, res.Release) || m.titleReleaseRejected(ctx, s.ident.key, res.Release)) {
 		return nil, nil, false
 	}
 	if res != nil && (!m.rememberedReleaseMatchesTitle(ctx, res.Release, s.title) || !payloadMatchesTitle(res.NZB, s.title)) {
@@ -291,7 +291,7 @@ func releasesFailed(n int, lastErr error, allUncached bool) error {
 // NZBs can be fetched directly, else a fresh Resolve excluding tried ones.
 func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string, alternates []core.Release) (*core.Resolution, error) {
 	ctx = core.WithIndexerPurpose(ctx, core.IndexerPurposePlayback)
-	tried = slices.Clone(tried)
+	tried = append(slices.Clone(tried), s.caps.BroadcastExclude...)
 	m.mu.Lock()
 	for id := range m.openFailures[s.ident.key] {
 		if !slices.Contains(tried, id) {
@@ -305,7 +305,7 @@ func (m *Manager) nextResolution(ctx context.Context, s *session, tried []string
 		// release, and a fresh Resolve would reopen the same link.
 		var preparing error
 		for i, alt := range alternates {
-			if alt.ID == "" || m.titleReleaseRejected(ctx, s.ident.key, alt) || m.releaseNamesakeRejected(ctx, s, alt) || slices.Contains(tried, alt.ID) || !releaseMatchesTitle(alt, s.title) {
+			if alt.ID == "" || !m.channelSourceAllowed(s, alt) || m.titleReleaseRejected(ctx, s.ident.key, alt) || m.releaseNamesakeRejected(ctx, s, alt) || slices.Contains(tried, alt.ID) || !releaseMatchesTitle(alt, s.title) {
 				continue
 			}
 			if preparing != nil && alt.OpensOnDemand() {
@@ -379,6 +379,9 @@ func allowsH264Transcode(c core.ClientCaps) bool {
 // marked bad. When the probe fails for another reason, fallback supplies the
 // media info.
 func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Resolution, fallback func(size int64) core.MediaInfo, cached ...*probeCache) (*generation, error) {
+	if slices.Contains(s.caps.BroadcastExclude, res.Release.ID) || !m.channelSourceAllowed(s, res.Release) {
+		return nil, fmt.Errorf("%w: source exceeds channel delivery budget", core.ErrNotAvailable)
+	}
 	if m.titleReleaseRejected(ctx, s.ident.key, res.Release) {
 		return nil, core.ErrReleaseRejected
 	}
@@ -402,6 +405,16 @@ func (m *Manager) openGeneration(ctx context.Context, s *session, res *core.Reso
 		return nil, fmt.Errorf("open %s: empty media file", res.Release.Name)
 	}
 	g, err := m.probeGeneration(ctx, s, res, src, finish, fallback, cached...)
+	if err == nil && g != nil && s.caps.BroadcastBitrateKbps > 0 {
+		// Resolve may only know a pack's size. Admit the selected file using
+		// its actual byte size, never the aggregate pack or an unknown size.
+		file := res.Release
+		file.Size, file.Info.FullSeason = src.Size(), false
+		if !m.channelSourceAllowed(s, file) {
+			m.dropGeneration(g)
+			return nil, fmt.Errorf("%w: selected file exceeds channel delivery budget", core.ErrNotAvailable)
+		}
+	}
 	m.rememberOpenFailure(s, res.Release, err)
 	return g, err
 }

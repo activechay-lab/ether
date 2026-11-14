@@ -222,3 +222,18 @@ func (m *Manager) EndChannel(group string) {
 	m.mu.Unlock()
 	m.reg.poke()
 }
+
+func (m *Manager) channelSourceAllowed(s *session, r core.Release) bool {
+	if s.caps.BroadcastBitrateKbps <= 0 {
+		return true
+	}
+	if r.Info.FullSeason {
+		r.Size = 0
+	}
+	if policy, ok := m.deps.Resolver.(interface {
+		ChannelSourceAllowed(core.Release, core.ClientCaps, *core.Title) bool
+	}); ok {
+		return policy.ChannelSourceAllowed(r, s.caps, s.title)
+	}
+	return r.Size <= 0 || s.title != nil && s.title.Runtime > 0 && float64(r.Size)*8*1.1/s.title.Runtime.Seconds() <= float64(s.caps.BroadcastBitrateKbps)*1000
+}
